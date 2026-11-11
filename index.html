@@ -1,0 +1,486 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<!-- La page ne charge rien d'extérieur et ne parle à aucun serveur (pas de connect-src). -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+<title>Test du coffre</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f5f6f8; --card: #ffffff; --ink: #1b2130; --muted: #5c6577; --line: #dde2ea;
+    --accent: #2c5fd1; --accent-ink: #ffffff; --ok: #1d8a4b; --ko: #c23a2b; --wait: #a66a12;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #11141a; --card: #1a1f28; --ink: #eef1f6; --muted: #9ba5b6; --line: #2b323f;
+      --accent: #7ea4ff; --accent-ink: #0d1220; --ok: #53c684; --ko: #ff8273; --wait: #e5b663;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  main { max-width: 620px; margin: 0 auto; padding: 20px 16px 56px; }
+  h1 { font-size: 26px; line-height: 1.2; margin: 8px 0 6px; }
+  h2 { font-size: 18px; margin: 0 0 6px; }
+  p { margin: 0 0 10px; }
+  .muted { color: var(--muted); font-size: 14px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; margin-top: 14px; }
+  button { font: inherit; font-weight: 600; border: 0; border-radius: 10px; padding: 12px 16px; min-height: 46px;
+           background: var(--accent); color: var(--accent-ink); cursor: pointer; width: 100%; margin-top: 6px; }
+  button.second { background: transparent; color: var(--accent); border: 1px solid var(--line); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  .status { margin-top: 10px; font-size: 15px; overflow-wrap: anywhere; }
+  .status.ok { color: var(--ok); } .status.ko { color: var(--ko); } .status.wait { color: var(--wait); }
+  .env { list-style: none; padding: 0; margin: 8px 0 0; font-size: 14px; color: var(--muted); }
+  .env b { color: var(--ink); font-weight: 600; }
+  .code { font: 600 22px/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: 1px; }
+  textarea { width: 100%; min-height: 250px; margin-top: 6px; padding: 10px; border-radius: 10px; border: 1px solid var(--line);
+             background: transparent; color: var(--ink); font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; resize: vertical; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Test du coffre</h1>
+  <p class="muted">Cette page vérifie que Face ID ou Touch ID peut fermer et rouvrir un coffre.
+     Elle ne parle à aucun serveur et rien de réel n'est protégé ici. Version 2.</p>
+  <ul class="env" id="env"></ul>
+
+  <section class="card">
+    <h2>Étape 1 : crée un coffre de test</h2>
+    <p class="muted">Ton appareil va te demander Face ID, Touch ID ou ton code.</p>
+    <button id="b-creer">Créer mon coffre de test</button>
+    <button id="b-activer" hidden>Dernier geste : activer le coffre</button>
+    <div class="status" id="s1"></div>
+  </section>
+
+  <section class="card">
+    <h2>Étape 2 : recharge la page, puis rouvre le coffre</h2>
+    <p class="muted">Si le trésor réapparaît, le coffre fonctionne sur cet appareil.</p>
+    <button id="b-recharger" class="second">Recharger la page</button>
+    <button id="b-ouvrir">Ouvrir mon coffre</button>
+    <div class="status" id="s2"></div>
+  </section>
+
+  <section class="card">
+    <h2>Étape 3 : essaie sur un autre appareil</h2>
+    <p class="muted">Sur un autre appareil relié au même compte Apple ou Google, ouvre cette même adresse et touche ce bouton.
+       Choisis la passkey qui porte le même nom. Le numéro de passkey et le code de contrôle doivent être identiques à ceux du premier appareil.</p>
+    <button id="b-autre" class="second">J'ai créé mon coffre sur un autre appareil</button>
+    <div class="status" id="s3"></div>
+  </section>
+
+  <section class="card">
+    <h2>Résultat à envoyer</h2>
+    <p class="muted">Copie ce texte et envoie-le dans la conversation.</p>
+    <textarea id="resultat" readonly></textarea>
+    <button id="b-copier">Copier le résultat</button>
+    <div class="status" id="s4"></div>
+  </section>
+
+  <section class="card">
+    <h2>Recommencer</h2>
+    <p class="muted">Efface le test de cette page. La passkey de test reste dans tes mots de passe : tu peux la supprimer là-bas.</p>
+    <button id="b-effacer" class="second">Effacer le test sur cet appareil</button>
+  </section>
+</main>
+
+<script>
+'use strict';
+// Test jetable : passkey + extension PRF -> HKDF -> AES-GCM. Aucun réseau, rien de réel.
+
+const te = new TextEncoder(), td = new TextDecoder();
+const $ = (id) => document.getElementById(id);
+const STORE = 'coffre-test-v1';
+const PRF_INPUT = te.encode('coffre-test/prf/v1');
+// Sel fixe : dans ce test sans serveur, deux appareils doivent dériver la même clé.
+// Dans le vrai produit, le sel est aléatoire et propre à chaque moyen d'accès.
+const SALT = te.encode('coffre-test/sel-fixe/v1');
+const INFO = { enc: 'coffre-test/chiffrement/v1', wrap: 'coffre-test/enveloppe/v1', code: 'coffre-test/code-de-controle/v1' };
+const AAGUIDS = {
+  'fbfc3007-154e-4ecc-8c0b-6e020557d7bd': 'Trousseau iCloud (Apple)',
+  'dd4ec289-e01d-41c9-bb89-70fa845d4bf2': 'Trousseau iCloud géré (Apple)',
+  'ea9b8d66-4d01-1d21-3ce4-b6b48cb575d4': 'Gestionnaire de mots de passe Google',
+  'adce0002-35bc-c60a-648b-0b25f1f05503': 'Chrome sur Mac (profil local)',
+  '08987058-cadc-51b2-bc12-73c0cfc9f3a8': 'Windows Hello',
+  '9ddd1817-af5a-4672-a2b9-3e3dd95000a9': 'Windows Hello',
+  '6028b017-b1d4-4c02-b4b3-afcdafc96bb2': 'Windows Hello',
+  'bada5566-a7aa-401f-bd96-45619a55120d': '1Password',
+  'd548826e-79b4-db40-a3d8-11116f7e8349': 'Bitwarden',
+};
+
+const b64u = (buf) => {
+  let s = '';
+  for (const x of new Uint8Array(buf)) s += String.fromCharCode(x);
+  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+};
+const unb64u = (str) => {
+  let s = str.replace(/-/g, '+').replace(/_/g, '/');
+  while (s.length % 4) s += '=';
+  const bin = atob(s), out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+};
+const hex = (bytes) => Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+const rand = (n) => crypto.getRandomValues(new Uint8Array(n));
+
+// --- État gardé sur l'appareil : identifiant de la passkey, coffre chiffré, résultats. Jamais de clé.
+const LOAD_ID = b64u(rand(6));
+const fresh = () => ({ v: 1, credId: null, pending: null, blob: null, createdInLoad: null, r: { erreurs: [] } });
+let state = fresh();
+try {
+  const saved = JSON.parse(localStorage.getItem(STORE));
+  if (saved && saved.v === 1 && saved.r) state = saved;
+} catch (_) { /* stockage indisponible : le test marche quand même, sans l'étape 2 après rechargement */ }
+const save = () => { try { localStorage.setItem(STORE, JSON.stringify(state)); } catch (_) {} };
+
+const env = { secure: window.isSecureContext, webauthn: !!window.PublicKeyCredential, uvpa: null, prfAnnonce: null };
+let tresorEnClair = null; // gardé en mémoire seulement, pour l'afficher juste après la création
+
+// --- Cryptographie (WebCrypto uniquement)
+async function deriver(prfOutput) {
+  const base = await crypto.subtle.importKey('raw', prfOutput, 'HKDF', false, ['deriveKey', 'deriveBits']);
+  new Uint8Array(prfOutput).fill(0); // la sortie PRF ne traîne pas en mémoire
+  const hk = (info) => ({ name: 'HKDF', hash: 'SHA-256', salt: SALT, info: te.encode(info) });
+  const aes = { name: 'AES-GCM', length: 256 };
+  const enc = await crypto.subtle.deriveKey(hk(INFO.enc), base, aes, false, ['encrypt', 'decrypt']);
+  const wrap = await crypto.subtle.deriveKey(hk(INFO.wrap), base, aes, false, ['wrapKey', 'unwrapKey']);
+  const bits = new Uint8Array(await crypto.subtle.deriveBits(hk(INFO.code), base, 32));
+  const h = hex(bits).toUpperCase();
+  return { enc, wrap, code: h.slice(0, 4) + '-' + h.slice(4) };
+}
+
+async function chiffrer(key, texte) {
+  const iv = rand(12);
+  const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, te.encode(texte));
+  return { iv: b64u(iv), ct: b64u(ct) };
+}
+async function dechiffrer(key, blob) {
+  const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64u(blob.iv) }, key, unb64u(blob.ct));
+  return td.decode(pt);
+}
+
+// Mesure : le navigateur sait-il garder une clé de signature Ed25519 invisible pour le code de la page ?
+// Clé jetable, jamais affichée, jamais gardée.
+async function testerEd25519(wrapKey) {
+  const out = { natif: false, invisible: false, detail: '' };
+  try {
+    const kp = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']);
+    out.natif = true;
+    const iv = rand(12);
+    const wrapped = await crypto.subtle.wrapKey('pkcs8', kp.privateKey, wrapKey, { name: 'AES-GCM', iv });
+    const priv = await crypto.subtle.unwrapKey('pkcs8', wrapped, wrapKey, { name: 'AES-GCM', iv }, { name: 'Ed25519' }, false, ['sign']);
+    const msg = te.encode('signature de test');
+    const sig = await crypto.subtle.sign({ name: 'Ed25519' }, priv, msg);
+    const valide = await crypto.subtle.verify({ name: 'Ed25519' }, kp.publicKey, sig, msg);
+    let exportRefuse = false;
+    try { await crypto.subtle.exportKey('pkcs8', priv); } catch (_) { exportRefuse = true; }
+    out.invisible = valide && exportRefuse && priv.extractable === false;
+    if (!out.invisible) out.detail = 'signature=' + valide + ', export refusé=' + exportRefuse;
+  } catch (e) {
+    out.detail = e.name || 'erreur';
+  }
+  return out;
+}
+
+// --- WebAuthn
+const prfDe = (cred) => {
+  const ext = cred.getClientExtensionResults ? cred.getClientExtensionResults() : {};
+  const prf = ext && ext.prf ? ext.prf : null;
+  const first = prf && prf.results && prf.results.first ? prf.results.first : null;
+  return { active: prf ? (typeof prf.enabled === 'boolean' ? prf.enabled : null) : false,
+           sortie: first && first.byteLength === 32 ? first : null };
+};
+// Octet de drapeaux des données de l'authentificateur : 0x08 = synchronisable, 0x10 = synchronisée.
+const drapeaux = (authData) => {
+  if (!authData || authData.byteLength < 37) return { be: null, bs: null };
+  const f = new Uint8Array(authData)[32];
+  return { be: !!(f & 0x08), bs: !!(f & 0x10) };
+};
+const fournisseurDe = (authData) => {
+  if (!authData || authData.byteLength < 53) return null;
+  const h = hex(new Uint8Array(authData).slice(37, 53));
+  const id = [h.slice(0, 8), h.slice(8, 12), h.slice(12, 16), h.slice(16, 20), h.slice(20)].join('-');
+  return (AAGUIDS[id] ? AAGUIDS[id] + ' ' : '') + '[' + id + ']';
+};
+
+function nomDuTest() {
+  const d = new Date(), p = (n) => String(n).padStart(2, '0');
+  return 'coffre-test-' + p(d.getDate()) + '-' + p(d.getMonth() + 1) + '-' + p(d.getHours()) + 'h' + p(d.getMinutes());
+}
+// Numéro court d'une passkey : le même sur tous les appareils où elle est synchronisée.
+async function numeroDe(rawId) {
+  return hex(new Uint8Array(await crypto.subtle.digest('SHA-256', rawId)).slice(0, 3)).toUpperCase();
+}
+function creerPasskey(etiquette) {
+  return navigator.credentials.create({ publicKey: {
+    challenge: rand(32),
+    rp: { name: 'Test du coffre', id: location.hostname },
+    user: { id: rand(16), name: etiquette, displayName: etiquette },
+    pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }],
+    authenticatorSelection: { authenticatorAttachment: 'platform', residentKey: 'required', requireResidentKey: true, userVerification: 'required' },
+    attestation: 'none',
+    timeout: 120000,
+    extensions: { prf: { eval: { first: PRF_INPUT } } },
+  } });
+}
+function demanderPasskey(credId) {
+  return navigator.credentials.get({ publicKey: {
+    challenge: rand(32),
+    rpId: location.hostname,
+    userVerification: 'required',
+    timeout: 120000,
+    allowCredentials: credId ? [{ type: 'public-key', id: unb64u(credId) }] : [],
+    extensions: { prf: { eval: { first: PRF_INPUT } } },
+  } });
+}
+
+// --- Affichage
+function dire(id, texte, sorte) {
+  const el = $(id);
+  el.textContent = texte || '';
+  el.className = 'status' + (sorte ? ' ' + sorte : '');
+}
+function expliquer(e) {
+  const n = e && e.name;
+  if (n === 'NotAllowedError') return 'Annulé, ou refusé par l\'appareil. Tu peux réessayer.';
+  if (n === 'SecurityError') return 'Cette adresse n\'est pas autorisée pour les passkeys.';
+  if (n === 'NotSupportedError') return 'Ce navigateur ne sait pas faire cette opération.';
+  if (n === 'InvalidStateError') return 'Une passkey identique existe déjà sur cet appareil.';
+  if (n === 'OperationError') return 'Le coffre n\'a pas pu être ouvert avec cette passkey.';
+  return 'Erreur : ' + (n || 'inconnue');
+}
+function noter(etape, e) {
+  const ligne = etape + ':' + (e && e.name ? e.name : 'Erreur') + (e && e.message ? ':' + String(e.message).slice(0, 90) : '');
+  state.r.erreurs = (state.r.erreurs || []).concat(ligne).slice(-5);
+  save();
+}
+const oui = (b) => (b === true ? 'oui' : b === false ? 'non' : 'inconnu');
+const passkeyEnClair = () => (state.r.passkey
+  ? ' Passkey n° ' + state.r.passkey + (state.r.etiquette ? ' (' + state.r.etiquette + ').' : '.') : '');
+
+function texteResultat() {
+  const r = state.r, L = [];
+  L.push('RESULTAT TEST COFFRE v2');
+  L.push('Date : ' + new Date().toISOString().slice(0, 16).replace('T', ' ') + ' UTC');
+  L.push('Adresse : ' + location.host);
+  L.push('Navigateur : ' + navigator.userAgent);
+  L.push('Capteur intégré : ' + oui(env.uvpa) + ' ; PRF annoncé par le navigateur : ' + oui(env.prfAnnonce));
+  L.push('1. Passkey créée : ' + (r.creation || 'pas fait')
+    + (r.passkey ? ' (n° ' + r.passkey + (r.etiquette ? ', ' + r.etiquette : '') + ')' : ''));
+  L.push('2. Fournisseur : ' + (r.fournisseur || 'inconnu'));
+  L.push('3. PRF à la création : activé=' + oui(r.prfActive) + ', sortie directe=' + oui(r.prfDirect));
+  L.push('4. PRF à l\'ouverture : ' + oui(r.prfOuverture));
+  L.push('5. Coffre chiffré : ' + (r.chiffrement || 'pas fait'));
+  L.push('6. Réouverture : ' + (r.reouverture
+    ? r.reouverture + ', après rechargement=' + oui(r.apresRechargement) + ', même code=' + oui(r.memeCode) : 'pas fait'));
+  L.push('7. Code de contrôle : ' + (r.code || 'aucun'));
+  L.push('8. Passkey synchronisable=' + oui(r.be) + ', synchronisée=' + oui(r.bs));
+  L.push('9. Ed25519 natif=' + oui(r.ed ? r.ed.natif : null) + ', clé invisible=' + oui(r.ed ? r.ed.invisible : null)
+    + (r.ed && r.ed.detail ? ' (' + r.ed.detail + ')' : ''));
+  L.push('10. Autre appareil : ' + (r.autre
+    ? 'code ' + r.autre.code + ', passkey n° ' + (r.autre.passkey || 'inconnu') + ', même passkey que le coffre d\'ici=' + oui(r.autre.memePasskey)
+      + ', synchronisée=' + oui(r.autre.bs) : 'pas fait'));
+  if (r.erreurs && r.erreurs.length) L.push('Erreurs : ' + r.erreurs.join(' | '));
+  return L.join('\n');
+}
+
+function afficher() {
+  const pret = env.secure && env.webauthn;
+  const ul = $('env');
+  ul.textContent = '';
+  const lignes = [
+    ['Connexion sécurisée', oui(env.secure)],
+    ['Passkeys disponibles', oui(env.webauthn)],
+    ['Face ID, Touch ID ou équivalent', oui(env.uvpa)],
+  ];
+  for (const [nom, val] of lignes) {
+    const li = document.createElement('li');
+    const b = document.createElement('b');
+    b.textContent = val;
+    li.append(nom + ' : ', b);
+    ul.append(li);
+  }
+  $('b-creer').disabled = !pret || !!state.blob;
+  $('b-creer').hidden = !!state.pending;
+  $('b-activer').hidden = !state.pending;
+  $('b-ouvrir').disabled = !pret || !state.blob;
+  $('b-recharger').disabled = !state.blob;
+  $('b-autre').disabled = !pret;
+  if (!pret) dire('s1', 'Cette page doit être ouverte en https (ou sur localhost) dans un navigateur récent.', 'ko');
+  else if (state.pending) dire('s1', 'Passkey créée. Touche le bouton pour activer le coffre (ton appareil redemande une vérification).', 'wait');
+  else if (state.blob && tresorEnClair) dire('s1', 'Coffre créé. Tu viens d\'y ranger : « ' + tresorEnClair + ' ». Code de contrôle : ' + state.r.code + '.' + passkeyEnClair(), 'ok');
+  else if (state.blob) dire('s1', 'Un coffre de test existe sur cet appareil. Code de contrôle : ' + state.r.code + '.' + passkeyEnClair(), 'ok');
+  $('resultat').value = texteResultat();
+}
+
+// --- Les trois gestes
+async function fermerLeCoffre(prfOutput) {
+  const cles = await deriver(prfOutput);
+  tresorEnClair = 'Trésor n° ' + String(100000 + (new DataView(rand(4).buffer).getUint32(0) % 900000));
+  state.blob = await chiffrer(cles.enc, tresorEnClair);
+  state.r.chiffrement = 'OK';
+  state.r.code = cles.code;
+  state.r.ed = await testerEd25519(cles.wrap);
+  state.createdInLoad = LOAD_ID;
+  state.pending = null;
+  save();
+}
+
+async function creer() {
+  dire('s1', 'En attente de ton appareil…', 'wait');
+  try {
+    const etiquette = nomDuTest();
+    const cred = await creerPasskey(etiquette);
+    const prf = prfDe(cred);
+    const ad = cred.response && cred.response.getAuthenticatorData ? cred.response.getAuthenticatorData() : null;
+    const f = drapeaux(ad);
+    state.credId = b64u(cred.rawId);
+    Object.assign(state.r, { creation: 'OK', passkey: await numeroDe(cred.rawId), etiquette,
+      prfActive: prf.active, prfDirect: !!prf.sortie, fournisseur: fournisseurDe(ad), be: f.be, bs: f.bs });
+    if (prf.sortie) {
+      await fermerLeCoffre(prf.sortie);
+    } else {
+      state.pending = state.credId; // certains appareils ne donnent la sortie PRF qu'à l'ouverture : il faut un second geste
+      save();
+    }
+  } catch (e) {
+    state.r.creation = state.r.creation === 'OK' ? 'OK' : 'ÉCHEC';
+    noter('creation', e);
+    afficher();
+    dire('s1', expliquer(e), 'ko');
+    return;
+  }
+  afficher();
+}
+
+async function activer() {
+  dire('s1', 'En attente de ton appareil…', 'wait');
+  try {
+    const a = await demanderPasskey(state.pending);
+    const prf = prfDe(a);
+    const f = drapeaux(a.response && a.response.authenticatorData);
+    if (f.be !== null) Object.assign(state.r, { be: f.be, bs: f.bs });
+    state.r.prfOuverture = !!prf.sortie;
+    if (!prf.sortie) {
+      save();
+      afficher();
+      dire('s1', 'Cet appareil ou ce navigateur ne donne pas le secret nécessaire au coffre (PRF absent). Envoie quand même le résultat.', 'ko');
+      return;
+    }
+    await fermerLeCoffre(prf.sortie);
+  } catch (e) {
+    noter('activation', e);
+    afficher();
+    dire('s1', expliquer(e), 'ko');
+    return;
+  }
+  afficher();
+}
+
+async function ouvrir() {
+  dire('s2', 'En attente de ton appareil…', 'wait');
+  try {
+    const a = await demanderPasskey(state.credId);
+    const prf = prfDe(a);
+    const f = drapeaux(a.response && a.response.authenticatorData);
+    if (f.be !== null) Object.assign(state.r, { be: f.be, bs: f.bs });
+    state.r.prfOuverture = !!prf.sortie;
+    if (!prf.sortie) throw Object.assign(new Error('pas de sortie PRF'), { name: 'PrfAbsent' });
+    const cles = await deriver(prf.sortie);
+    const tresor = await dechiffrer(cles.enc, state.blob);
+    const apres = state.createdInLoad !== LOAD_ID;
+    Object.assign(state.r, { reouverture: 'OK', apresRechargement: apres, memeCode: cles.code === state.r.code });
+    save();
+    afficher();
+    dire('s2', 'Coffre ouvert. Trésor retrouvé : « ' + tresor + ' ».' + (apres ? '' : ' Recharge la page et recommence pour un test complet.'), 'ok');
+  } catch (e) {
+    // Une annulation ne doit pas effacer une réouverture déjà réussie.
+    if (e.name !== 'NotAllowedError') Object.assign(state.r, { reouverture: 'ÉCHEC', apresRechargement: null, memeCode: null });
+    noter('ouverture', e);
+    afficher();
+    dire('s2', e.name === 'PrfAbsent' ? 'L\'appareil n\'a pas donné le secret du coffre (PRF absent).' : expliquer(e), 'ko');
+  }
+}
+
+async function autreAppareil() {
+  dire('s3', 'En attente de ton appareil…', 'wait');
+  try {
+    const a = await demanderPasskey(null); // sans identifiant : l'appareil propose les passkeys qu'il connaît pour cette adresse
+    const prf = prfDe(a);
+    const f = drapeaux(a.response && a.response.authenticatorData);
+    if (!prf.sortie) throw Object.assign(new Error('pas de sortie PRF'), { name: 'PrfAbsent' });
+    const cles = await deriver(prf.sortie);
+    const numero = await numeroDe(a.rawId);
+    // Sur l'appareil qui a créé le coffre, on sait dire si la passkey choisie est celle du coffre.
+    const meme = state.credId ? b64u(a.rawId) === state.credId : null;
+    state.r.autre = { code: cles.code, bs: f.bs, passkey: numero, memePasskey: meme };
+    save();
+    afficher();
+    const anomalie = meme === true && cles.code !== state.r.code;
+    const suite = anomalie ? ' ANOMALIE : c\'est la passkey du coffre de cet appareil, mais le code est différent. Envoie le résultat.'
+      : meme === true ? ' C\'est bien la passkey du coffre de cet appareil, avec le même code.'
+      : meme === false ? ' Ce n\'est pas la passkey du coffre de cet appareil : son code est différent, c\'est normal.'
+      : ' Le numéro de passkey et le code doivent être identiques à ceux du premier appareil.';
+    $('s3').textContent = '';
+    $('s3').className = 'status ' + (anomalie ? 'ko' : 'ok');
+    const span = document.createElement('span');
+    span.className = 'code';
+    span.textContent = cles.code;
+    $('s3').append('Passkey n° ' + numero + '. Code de contrôle : ', span, '.' + suite);
+  } catch (e) {
+    noter('autre-appareil', e);
+    afficher();
+    dire('s3', e.name === 'PrfAbsent' ? 'Passkey trouvée, mais l\'appareil n\'a pas donné le secret du coffre (PRF absent).' : expliquer(e), 'ko');
+  }
+}
+
+async function copier() {
+  const t = $('resultat');
+  t.value = texteResultat();
+  try {
+    await navigator.clipboard.writeText(t.value);
+    dire('s4', 'Copié. Colle-le dans la conversation.', 'ok');
+  } catch (_) {
+    t.focus(); t.select();
+    dire('s4', 'Sélectionné. Fais « Copier », puis colle-le dans la conversation.', 'wait');
+  }
+}
+
+function effacer() {
+  try { localStorage.removeItem(STORE); } catch (_) {}
+  state = fresh();
+  tresorEnClair = null;
+  for (const id of ['s1', 's2', 's3', 's4']) dire(id, '');
+  afficher();
+}
+
+// Un seul geste à la fois : évite deux demandes de passkey en parallèle.
+let occupe = false;
+const seul = (fn) => async () => { if (occupe) return; occupe = true; try { await fn(); } finally { occupe = false; } };
+$('b-creer').addEventListener('click', seul(creer));
+$('b-activer').addEventListener('click', seul(activer));
+$('b-ouvrir').addEventListener('click', seul(ouvrir));
+$('b-autre').addEventListener('click', seul(autreAppareil));
+$('b-recharger').addEventListener('click', () => location.reload());
+$('b-copier').addEventListener('click', copier);
+$('b-effacer').addEventListener('click', effacer);
+
+afficher();
+(async () => {
+  if (!env.webauthn) return;
+  try { env.uvpa = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable(); } catch (_) {}
+  try {
+    if (PublicKeyCredential.getClientCapabilities) {
+      const caps = await PublicKeyCredential.getClientCapabilities();
+      if (caps && typeof caps['extension:prf'] === 'boolean') env.prfAnnonce = caps['extension:prf'];
+    }
+  } catch (_) {}
+  afficher();
+})();
+</script>
+</body>
+</html>

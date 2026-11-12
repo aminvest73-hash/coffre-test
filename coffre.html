@@ -55,7 +55,7 @@
 <body>
 <main id="page-racine">
   <h1>Mon coffre</h1>
-  <p class="muted">Page de test. Les clés créées ici sont jetables et ne protègent rien de réel. Version 2.</p>
+  <p class="muted">Page de test. Les clés créées ici sont jetables et ne protègent rien de réel. Version 3.</p>
   <div class="status ko" id="blocage" hidden></div>
   <section class="card" id="v-accueil" hidden>
     <h2>Crée ton coffre</h2>
@@ -84,7 +84,7 @@
   <section class="card" id="v-mission" hidden>
     <h2>Mission : ton secours</h2>
     <div id="m-intro">
-      <p>Si tu perds ton téléphone, 12 mots te rendront ton wallet. Ta mission : les noter, puis les remettre dans l'ordre.</p>
+      <p>Si tu perds ton téléphone, tes 12 mots et ton coffre fermé te rendront ton wallet. Ta mission : noter les 12 mots, les remettre dans l'ordre, puis emporter ton coffre fermé.</p>
       <p class="muted">Fais-la seul : personne ne doit voir ton écran pendant la mission.</p>
       <details>
         <summary>À quoi ça sert ?</summary>
@@ -580,6 +580,25 @@ const Verification = (() => {
       if (autre === A.adresse) return 'meme adresse';
       // La signature prouve que la cle va avec l'adresse du coffre presente, pas que ce coffre est celui qu'on attendait.
     });
+    await essai('E5 : une autre cle enveloppee correctement a la place de la bonne, adresse gardee : refus par la preuve', async () => {
+      // Il faut connaître la sortie de la passkey pour fabriquer ce coffre : un voleur du fichier ne le peut pas, cet essai si.
+      // Le chemin du format est refait ici à la main, sans passer par le noyau : sel, HKDF, données liées, AES-GCM.
+      const te = new TextEncoder(), a = A.acces[0];
+      const liees = (role, plus) => te.encode(['coffre/v1', role, A.id, A.adresse].concat(plus || []).join('|'));
+      const gcm = (iv, donnees) => ({ name: 'AES-GCM', iv, additionalData: donnees, tagLength: 128 });
+      const base = await crypto.subtle.importKey('raw', prfA, 'HKDF', false, ['deriveKey']);
+      const kek = await crypto.subtle.deriveKey({ name: 'HKDF', hash: 'SHA-256', salt: C.deB64u(a.sel), info: te.encode('coffre/v1/kek/passkey') },
+        base, { name: 'AES-GCM', length: 256 }, false, ['unwrapKey']);
+      const dek = await crypto.subtle.unwrapKey('raw', C.deB64u(a.ct), kek, gcm(C.deB64u(a.iv), liees('acces-passkey', [a.cred])),
+        { name: 'AES-GCM', length: 256 }, false, ['wrapKey']);
+      const autre = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']);
+      const iv = C.hasard(12);
+      const ct = new Uint8Array(await crypto.subtle.wrapKey('pkcs8', autre.privateKey, dek, gcm(iv, liees('cle'))));
+      const faux = copie(A);
+      faux.cle = { iv: C.b64u(iv), ct: C.b64u(ct) };
+      C.valider(faux); // la forme reste bonne et le déchiffrement passera : seule la preuve par signature peut refuser
+      return await refuse(() => C.ouvrirParPasskey(faux, prfA), ['PreuveEchouee']);
+    });
     await essai('le coffre ferme ne contient ni les mots ni le secret', async () => {
       const texte = JSON.stringify(A).toLowerCase();
       const secret = await C.secretDepuisMots(motsA, 'fr');
@@ -648,7 +667,7 @@ const Verification = (() => {
     return 'Erreur : ' + (n || 'inconnue');
   }
   function texteResultat() {
-    return ['RESULTAT COFFRE v1', 'page : version 2', 'date : ' + new Date().toISOString(), 'navigateur : ' + navigator.userAgent,
+    return ['RESULTAT COFFRE v1', 'page : version 3', 'date : ' + new Date().toISOString(), 'navigateur : ' + navigator.userAgent,
       'coffre sur cet appareil : ' + (coffre ? 'oui, adresse ' + coffre.adresse : 'non'),
       'secours : ' + (etat.secoursFait ? 'fait' : 'a faire'), '---'].concat(journal).join('\n');
   }

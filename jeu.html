@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<!-- Ce faux jeu ne charge rien d'extérieur, sauf la fenêtre du coffre dans un cadre. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; frame-src https://aminvest73-hash.github.io http://localhost:8787; base-uri 'none'; form-action 'none'">
+<title>Faux jeu de test</title>
+<style>
+  :root { --fond: #1b1033; --carte: #2a1b4d; --encre: #f4efff; --doux: #b9a9dd; --trait: #43307a; --or: #ffcf4a; --ok: #6fe3a1; --ko: #ff9c9c; --att: #ffd27a; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--fond); color: var(--encre);
+         font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  main { max-width: 620px; margin: 0 auto; padding: 20px 16px 56px; }
+  h1 { font-size: 26px; line-height: 1.2; margin: 8px 0 6px; }
+  h2 { font-size: 18px; margin: 0 0 6px; }
+  p { margin: 0 0 10px; }
+  .doux { color: var(--doux); font-size: 14px; }
+  .carte { background: var(--carte); border: 1px solid var(--trait); border-radius: 14px; padding: 16px; margin-top: 14px; }
+  button { font: inherit; font-weight: 700; border: 0; border-radius: 10px; padding: 12px 16px; min-height: 46px;
+           background: var(--or); color: #2a1b00; cursor: pointer; width: 100%; margin-top: 6px; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.lien { width: auto; min-height: 0; margin: 0; padding: 4px 12px; background: transparent; color: var(--encre); border: 1px solid var(--trait); font-weight: 600; }
+  .etat { margin-top: 10px; font-size: 15px; overflow-wrap: anywhere; color: var(--doux); }
+  .etat.ok { color: var(--ok); } .etat.ko { color: var(--ko); } .etat.att { color: var(--att); }
+  .voile { position: fixed; inset: 0; z-index: 10; background: rgba(8, 5, 22, .78); display: flex; align-items: flex-start; justify-content: center; padding: 6vh 10px 10px; }
+  .feuille { width: 100%; max-width: 460px; max-height: 90vh; overflow: auto; border-radius: 16px; background: var(--carte); border: 1px solid var(--trait); }
+  .tete { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 12px; font-size: 14px; color: var(--doux); }
+  .porte { position: relative; }
+  iframe { display: block; width: 100%; height: 330px; border: 0; }
+  .porte-sans { margin-top: 10px; border-radius: 12px; overflow: hidden; border: 1px solid var(--trait); }
+  .porte-sans iframe { height: 200px; }
+  /* Le faux récapitulatif du jeu piraté : il imite celui de la fenêtre du coffre, couleurs comprises. */
+  .faux { --card: #ffffff; --ink: #1b2130; --muted: #5c6577; --line: #dde2ea;
+          position: absolute; margin: 0; border: 1px solid var(--line); border-radius: 12px; padding: 12px;
+          background: var(--card); color: var(--ink); overflow: hidden; }
+  @media (prefers-color-scheme: dark) { .faux { --card: #1a1f28; --ink: #eef1f6; --muted: #9ba5b6; --line: #2b323f; } }
+  .faux .recap-titre { font-weight: 700; margin-bottom: 6px; }
+  .faux .ligne { display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; border-top: 1px solid var(--line); }
+  .faux .ligne span { color: var(--muted); }
+  .faux .ligne b { text-align: right; overflow-wrap: anywhere; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Faux jeu de test</h1>
+  <p class="doux">Ce faux jeu sert à essayer la fenêtre du coffre affichée dans un autre site. Rien de réel n'est protégé ici. Version 1.</p>
+  <div class="etat att" id="e0">La fenêtre du coffre se prépare…</div>
+
+  <section class="carte">
+    <h2>Essais 1 et 2 : la fenêtre du coffre dans le jeu</h2>
+    <p>Ouvre la fenêtre. Dedans, touche « Ouvrir mon coffre ». Puis touche « Créer un coffre de test ». Ensuite, ferme la fenêtre.</p>
+    <button id="b-voir">Ouvrir la fenêtre du coffre</button>
+    <div class="etat" id="e1">Essai 1 : pas encore fait.</div>
+    <div class="etat" id="e2">Essai 2 : pas encore fait.</div>
+  </section>
+
+  <section class="carte">
+    <h2>Essai 3 : un cadre sans permission</h2>
+    <p>La même fenêtre, mais ce jeu ne lui a pas donné la permission d'utiliser Face ID. Affiche le cadre, puis touche son bouton. Le navigateur doit refuser.</p>
+    <button id="b-sans">Afficher le cadre sans permission</button>
+    <div class="porte-sans" id="porte-sans" hidden><iframe id="coffre-sans" title="Fenêtre du coffre, sans permission"></iframe></div>
+    <div class="etat" id="e3">Essai 3 : pas encore fait.</div>
+  </section>
+
+  <section class="carte">
+    <h2>Essai 4 : un achat validé dans la fenêtre du coffre, à part</h2>
+    <p>Le jeu ouvre la vraie fenêtre du coffre, hors du jeu. Regarde l'adresse affichée en haut, valide, puis reviens ici.</p>
+    <button id="b-apart">Acheter une épée (fenêtre à part)</button>
+    <div class="etat" id="e4">Essai 4 : pas encore fait.</div>
+  </section>
+
+  <section class="carte">
+    <h2>Essai 5 : le même achat, sans quitter le jeu</h2>
+    <p>Cette fois, la demande s'affiche dans la fenêtre intégrée.</p>
+    <button id="b-integre">Acheter une épée (dans le jeu)</button>
+    <div class="etat" id="e5">Essai 5 : pas encore fait.</div>
+  </section>
+
+  <section class="carte">
+    <h2>Essai 6 : le jeu a été piraté</h2>
+    <p>Même bouton, même écran. Lis bien ce que tu valides.</p>
+    <button id="b-triche">Acheter une épée (jeu piraté)</button>
+    <div class="etat" id="e6">Essai 6 : pas encore fait.</div>
+  </section>
+
+  <section class="carte">
+    <h2>Pour finir</h2>
+    <p>Ouvre la fenêtre du coffre, touche « Copier le résultat » tout en bas, puis colle-le dans la conversation.</p>
+    <button id="b-resultat">Voir le résultat</button>
+  </section>
+</main>
+
+<div class="voile" id="voile" hidden>
+  <div class="feuille">
+    <div class="tete"><span>Faux jeu · fenêtre intégrée</span><button class="lien" id="b-fermer">Fermer</button></div>
+    <div class="porte" id="porte">
+      <iframe id="coffre" title="Fenêtre du coffre" allow="publickey-credentials-get; publickey-credentials-create; clipboard-write"></iframe>
+      <div class="faux" id="faux" hidden>
+        <div class="recap-titre">On te demande de valider</div>
+        <div class="ligne"><span>Objet</span><b id="f-objet"></b></div>
+        <div class="ligne"><span>Prix</span><b id="f-prix"></b></div>
+        <div class="ligne"><span>Pour</span><b id="f-pour"></b></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+const te = new TextEncoder();
+const $ = (id) => document.getElementById(id);
+
+// Où se trouve la fenêtre du coffre : toujours sur un autre site que ce faux jeu.
+const LOCAL = location.hostname === '127.0.0.1';
+const ORIGINE_COFFRE = LOCAL ? 'http://localhost:' + location.port : 'https://aminvest73-hash.github.io';
+const COFFRE = ORIGINE_COFFRE + (LOCAL ? '/fenetre.html' : '/coffre-test/fenetre.html');
+
+const VRAI = { objet: 'Épée en bois', prix: '1 pièce', pour: 'Faux jeu de test' };
+const PIRATE = { objet: 'Tout ton inventaire', prix: '1000 pièces', pour: 'Un inconnu' };
+
+const cadre = $('coffre'), cadreSans = $('coffre-sans');
+let fenetre = null;    // la fenêtre du coffre ouverte à part
+let pret = false;      // la fenêtre intégrée a répondu
+let enCours = null;    // demande affichée dans la fenêtre intégrée
+const demandes = {};   // ce que le jeu a demandé, et ce qu'il a montré au joueur
+
+const b64u = (buf) => {
+  let s = '';
+  for (const x of new Uint8Array(buf)) s += String.fromCharCode(x);
+  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+};
+const hasard = () => Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) => b.toString(16).padStart(2, '0')).join('');
+const numero = (x) => String(x == null ? '' : x).replace(/[^0-9A-F]/g, '').slice(0, 6) || 'inconnu';
+const court = (x) => String(x == null ? '' : x).slice(0, 60);
+function dire(id, texte, sorte) {
+  const el = $(id);
+  el.textContent = texte;
+  el.className = 'etat' + (sorte ? ' ' + sorte : '');
+}
+
+// --- Messages vers la fenêtre du coffre : toujours adressés à son adresse exacte.
+function auCoffre(message) { if (pret && cadre.contentWindow) cadre.contentWindow.postMessage(message, ORIGINE_COFFRE); }
+const note = (texte) => auCoffre({ type: 'jeu-note', texte });
+function ouvrirVoile() { $('voile').hidden = false; }
+function fermerVoile() { $('voile').hidden = true; $('faux').hidden = true; }
+function retirerDemande() {
+  if (!enCours) return;
+  auCoffre({ type: 'jeu-annule', id: enCours });
+  delete demandes[enCours];
+  enCours = null;
+}
+
+function nouvelleDemande(essai, vrai, montre) {
+  const id = hasard();
+  demandes[id] = { essai, vrai, montre };
+  return { type: 'jeu-demande', id, objet: vrai.objet, prix: vrai.prix, pour: vrai.pour };
+}
+function acheterDansLeJeu(essai, vrai, montre) {
+  if (!pret) return;
+  retirerDemande();
+  const m = nouvelleDemande(essai, vrai, montre);
+  enCours = m.id;
+  $('faux').hidden = true;
+  ouvrirVoile();
+  dire(essai === 'triche' ? 'e6' : 'e5', 'Regarde la fenêtre du coffre, et valide.', 'att');
+  // On laisse au navigateur le temps d'afficher le cadre avant d'envoyer la demande.
+  requestAnimationFrame(() => requestAnimationFrame(() => auCoffre(m)));
+}
+// Le jeu piraté pose son propre récapitulatif exactement par-dessus celui de la fenêtre du coffre.
+function placerFaux(zone, montre) {
+  const z = zone || {}, f = $('faux'), n = (v) => Number(v) || 0;
+  if (n(z.largeur) < 50 || n(z.hauteur) < 30) return;
+  $('f-objet').textContent = montre.objet;
+  $('f-prix').textContent = montre.prix;
+  $('f-pour').textContent = montre.pour;
+  f.style.top = n(z.haut) + 'px';
+  f.style.left = n(z.gauche) + 'px';
+  f.style.width = n(z.largeur) + 'px';
+  f.style.height = n(z.hauteur) + 'px';
+  f.hidden = false;
+}
+
+function duCadre(m) {
+  if (m.type === 'coffre-evenement') {
+    if (m.quoi === 'ouvert') dire('e1', 'Essai 1 réussi : coffre ouvert dans le jeu, passkey n° ' + numero(m.passkey) + '.', 'ok');
+    else if (m.quoi === 'cree') dire('e2', 'Essai 2 réussi : coffre créé dans le jeu, passkey n° ' + numero(m.passkey) + (m.direct ? '.' : '. Touche « Ouvrir mon coffre » pour finir.'), 'ok');
+    else if (m.quoi === 'erreur') {
+      const creer = m.etape === 'creer';
+      dire(creer ? 'e2' : 'e1', 'Essai ' + (creer ? '2' : '1') + ' : échec (' + court(m.erreur) + '). Lis le message dans la fenêtre.', 'ko');
+    }
+    return;
+  }
+  // Une réponse ne compte que si elle vient de la fenêtre à qui la demande a été envoyée, et une seule fois.
+  const d = m.id && demandes[m.id];
+  if (!d || d.essai === 'apart') return;
+  if (m.type === 'coffre-demande-affichee') {
+    if (d.essai === 'triche' && m.id === enCours) placerFaux(m.zone, d.montre);
+    return;
+  }
+  if (m.type !== 'coffre-reponse') return;
+  delete demandes[m.id];
+  if (m.id === enCours) enCours = null;
+  $('faux').hidden = true;
+  const a = m.approuve || {};
+  if (d.essai === 'triche') {
+    if (m.ok) {
+      dire('e6', 'Le jeu a triché. Tu as cru valider : ' + d.montre.objet + ', ' + d.montre.prix + ', pour ' + d.montre.pour
+        + '. La fenêtre du coffre a réellement validé : ' + court(a.objet) + ', ' + court(a.prix) + ', pour ' + court(a.pour)
+        + '. Le jeu avait posé son récapitulatif par-dessus le vrai.', 'ko');
+      note('essai 6 : le jeu a recouvert le recapitulatif, le joueur a valide');
+    } else {
+      dire('e6', 'Essai 6 : non validé (' + court(m.erreur) + '). Le jeu affichait pourtant un faux récapitulatif par-dessus le vrai.', 'att');
+      note('essai 6 : le jeu a recouvert le recapitulatif, non valide (' + court(m.erreur) + ')');
+    }
+    setTimeout(() => { fermerVoile(); $('e6').scrollIntoView({ block: 'center' }); }, 900);
+  } else {
+    if (m.ok) {
+      dire('e5', 'Essai 5 réussi : achat validé sans quitter le jeu (' + court(a.objet) + ', ' + court(a.prix) + ').', 'ok');
+      note('essai 5 : achat valide dans le jeu, reponse recue par le jeu');
+    } else {
+      dire('e5', 'Essai 5 : achat non validé (' + court(m.erreur) + ').', 'att');
+      note('essai 5 : non valide (' + court(m.erreur) + ')');
+    }
+    setTimeout(fermerVoile, 1200);
+  }
+}
+function duCadreSans(m) {
+  if (m.type !== 'coffre-evenement' || m.quoi !== 'sans-permission') return;
+  const ms = Math.round(Number(m.ms) || 0);
+  if (m.resultat === 'refuse') {
+    const lent = ms > 1500;
+    dire('e3', lent ? 'Essai 3 : refusé, mais lentement. Si une demande Face ID est apparue, dis-le-moi.' : 'Essai 3 réussi : le navigateur a refusé tout de suite.', lent ? 'att' : 'ok');
+    note('essai 3 sans permission : refuse (' + court(m.erreur) + ', ' + ms + ' ms)');
+  } else {
+    dire('e3', 'Essai 3 : ÉCHEC, le navigateur a accepté sans permission.', 'ko');
+    note('essai 3 sans permission : ACCEPTE');
+  }
+}
+function deLaFenetre(m) {
+  const d = m.id && demandes[m.id];
+  if (m.type !== 'coffre-reponse' || !d || d.essai !== 'apart') return;
+  delete demandes[m.id];
+  if (m.ok) {
+    const q = m.marqueurs || {};
+    dire('e4', 'Essai 4 réussi : achat validé dans la fenêtre du coffre, passkey n° ' + numero(m.passkey) + '.', 'ok');
+    note('essai 4 fenetre a part : valide, passkey ' + numero(m.passkey) + ', stockage local ' + numero(q.local) + ', base locale ' + numero(q.base));
+  } else {
+    dire('e4', 'Essai 4 : achat non validé (' + court(m.erreur) + ').', 'att');
+    note('essai 4 fenetre a part : non valide (' + court(m.erreur) + ')');
+  }
+}
+
+// --- Messages reçus : seulement de l'adresse du coffre, et seulement des fenêtres que ce jeu a ouvertes.
+window.addEventListener('message', (ev) => {
+  if (ev.origin !== ORIGINE_COFFRE) return;
+  const m = ev.data;
+  if (!m || typeof m !== 'object') return;
+  const de = ev.source === cadre.contentWindow ? 'cadre' : ev.source === cadreSans.contentWindow ? 'sans' : (fenetre && ev.source === fenetre) ? 'apart' : null;
+  if (!de) return;
+  if (m.type === 'coffre-pret') {
+    ev.source.postMessage({ type: 'jeu-bonjour' }, ORIGINE_COFFRE);
+    if (de === 'cadre' && !pret) {
+      pret = true;
+      for (const id of ['b-voir', 'b-integre', 'b-triche', 'b-resultat']) $(id).disabled = false;
+      dire('e0', 'La fenêtre du coffre est prête.', 'ok');
+    }
+    return;
+  }
+  if (m.type === 'coffre-taille') {
+    const h = Math.max(160, Math.min(1600, Math.round(Number(m.hauteur) || 0)));
+    if (de === 'cadre') cadre.style.height = h + 'px';
+    if (de === 'sans') cadreSans.style.height = h + 'px';
+    return;
+  }
+  if (de === 'cadre') duCadre(m); else if (de === 'sans') duCadreSans(m); else deLaFenetre(m);
+});
+
+$('b-voir').addEventListener('click', ouvrirVoile);
+$('b-resultat').addEventListener('click', ouvrirVoile);
+$('b-fermer').addEventListener('click', () => { retirerDemande(); fermerVoile(); });
+$('b-sans').addEventListener('click', () => {
+  $('porte-sans').hidden = false;
+  cadreSans.src = COFFRE + '#sans-permission';
+  dire('e3', 'Touche le bouton du cadre ci-dessus.', 'att');
+});
+$('b-apart').addEventListener('click', () => {
+  const m = nouvelleDemande('apart', VRAI, VRAI);
+  const lien = COFFRE + '#a-part&d=' + b64u(te.encode(JSON.stringify({ id: m.id, objet: m.objet, prix: m.prix, pour: m.pour })));
+  fenetre = window.open(lien, 'fenetre-du-coffre', 'popup,width=440,height=700');
+  if (!fenetre) {
+    delete demandes[m.id];
+    dire('e4', 'Essai 4 : le navigateur a bloqué l\'ouverture de la fenêtre.', 'ko');
+    note('essai 4 fenetre a part : ouverture bloquee');
+  } else {
+    dire('e4', 'La fenêtre du coffre est ouverte. Valide dedans, puis reviens ici. Si rien ne change ici ensuite, dis-le-moi.', 'att');
+  }
+});
+$('b-integre').addEventListener('click', () => acheterDansLeJeu('honnete', VRAI, VRAI));
+$('b-triche').addEventListener('click', () => acheterDansLeJeu('triche', PIRATE, VRAI));
+
+for (const id of ['b-voir', 'b-integre', 'b-triche', 'b-resultat']) $(id).disabled = true;
+cadre.src = COFFRE;
+setTimeout(() => {
+  if (!pret) dire('e0', 'La fenêtre du coffre ne répond pas. Ce site n\'est peut-être pas enregistré auprès du coffre.', 'ko');
+}, 6000);
+</script>
+</body>
+</html>

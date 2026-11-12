@@ -1,0 +1,553 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<!-- La page ne charge rien d'extérieur et ne parle à aucun serveur (pas de connect-src). -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+<title>Fenêtre du coffre (test)</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --card: #ffffff; --ink: #1b2130; --muted: #5c6577; --line: #dde2ea;
+    --accent: #2c5fd1; --accent-ink: #ffffff; --ok: #1d8a4b; --ko: #c23a2b; --wait: #a66a12;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --card: #1a1f28; --ink: #eef1f6; --muted: #9ba5b6; --line: #2b323f;
+      --accent: #7ea4ff; --accent-ink: #0d1220; --ok: #53c684; --ko: #ff8273; --wait: #e5b663;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body { background: var(--card); color: var(--ink);
+         font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  main { max-width: 460px; margin: 0 auto; padding: 0 14px 14px; }
+  p { margin: 0 0 10px; }
+  .bandeau { margin: 0 -14px 12px; padding: 10px 14px; background: var(--accent); color: var(--accent-ink); font-weight: 700; }
+  .bandeau .petit { font-weight: 400; opacity: .85; font-size: 13px; margin-left: 6px; }
+  .muted { color: var(--muted); font-size: 14px; overflow-wrap: anywhere; }
+  button { font: inherit; font-weight: 600; border: 0; border-radius: 10px; padding: 12px 16px; min-height: 46px;
+           background: var(--accent); color: var(--accent-ink); cursor: pointer; width: 100%; margin-top: 6px; }
+  button.second { background: transparent; color: var(--accent); border: 1px solid var(--line); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  .status { margin-top: 10px; font-size: 15px; overflow-wrap: anywhere; }
+  .status.ok { color: var(--ok); } .status.ko { color: var(--ko); } .status.wait { color: var(--wait); }
+  .code { font: 600 20px/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: 1px; }
+  .recap { border: 1px solid var(--line); border-radius: 12px; padding: 12px; margin: 0 0 10px; background: var(--card); color: var(--ink); }
+  .recap-titre { font-weight: 700; margin-bottom: 6px; }
+  .ligne { display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; border-top: 1px solid var(--line); }
+  .ligne span { color: var(--muted); }
+  .ligne b { text-align: right; overflow-wrap: anywhere; }
+  textarea { width: 100%; min-height: 150px; margin-top: 6px; padding: 10px; border-radius: 10px; border: 1px solid var(--line);
+             background: transparent; color: var(--ink); font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; resize: vertical; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <div class="bandeau">Fenêtre du coffre<span class="petit">page de test</span></div>
+  <p class="muted" id="contexte"></p>
+  <div class="status ko" id="refus" hidden></div>
+
+  <section id="accueil">
+    <button id="b-ouvrir">Ouvrir mon coffre</button>
+    <button id="b-creer" class="second">Créer un coffre de test</button>
+    <div class="status" id="s-accueil"></div>
+  </section>
+
+  <section id="demande" hidden>
+    <div class="recap" id="recap">
+      <div class="recap-titre">On te demande de valider</div>
+      <div class="ligne"><span>Objet</span><b id="r-objet"></b></div>
+      <div class="ligne"><span>Prix</span><b id="r-prix"></b></div>
+      <div class="ligne"><span>Pour</span><b id="r-pour"></b></div>
+    </div>
+    <p class="muted" id="r-site"></p>
+    <button id="b-confirmer">Confirmer avec Face ID ou empreinte</button>
+    <button id="b-refuser" class="second">Refuser</button>
+    <div class="status" id="s-demande"></div>
+  </section>
+
+  <section id="fin" hidden>
+    <div class="status" id="s-fin"></div>
+  </section>
+
+  <section id="zone-rapport">
+    <button id="b-copier" class="second">Copier le résultat</button>
+    <textarea id="rapport" readonly></textarea>
+    <div class="status" id="s-rapport"></div>
+  </section>
+</main>
+
+<script>
+'use strict';
+const te = new TextEncoder(), td = new TextDecoder();
+const $ = (id) => document.getElementById(id);
+
+// Mêmes réglages que la page « Test du coffre » : une même passkey doit donner le même code ici.
+const PRF_INPUT = te.encode('coffre-test/prf/v1');
+const SALT = te.encode('coffre-test/sel-fixe/v1');
+const INFO_CODE = 'coffre-test/code-de-controle/v1';
+const STORE = 'fenetre-test-v1';
+
+// Sites autorisés à afficher cette fenêtre ou à lui envoyer une demande.
+// Dans le vrai produit : les adresses enregistrées par chaque studio, imposées aussi par un en-tête du serveur.
+// Limite de ce test : l'adresse ci-dessous est un service partagé, n'importe quelle page servie par lui est acceptée.
+const SITES_ENREGISTRES = ['https://raw.githack.com'];
+if (location.hostname === 'localhost') SITES_ENREGISTRES.push('http://127.0.0.1:' + location.port);
+
+const INTEGRE = window.top !== window.self;          // affichée dans un autre site
+const A_PART = !INTEGRE && !!window.opener;           // ouverte par un autre site, dans sa propre fenêtre
+const SANS_PERMISSION = location.hash.indexOf('sans-permission') !== -1;
+const MODE = INTEGRE ? (SANS_PERMISSION ? 'integre-sans-permission' : 'integre') : (A_PART ? 'a-part' : 'directe');
+const cible = INTEGRE ? window.parent : (A_PART ? window.opener : null);
+const ancetres = location.ancestorOrigins ? Array.from(location.ancestorOrigins) : null;
+
+const b64u = (buf) => {
+  let s = '';
+  for (const x of new Uint8Array(buf)) s += String.fromCharCode(x);
+  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+};
+const unb64u = (str) => {
+  let s = str.replace(/-/g, '+').replace(/_/g, '/');
+  while (s.length % 4) s += '=';
+  const bin = atob(s), out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+};
+const hex = (bytes) => Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+const rand = (n) => crypto.getRandomValues(new Uint8Array(n));
+const oui = (b) => (b === true ? 'oui' : b === false ? 'non' : 'inconnu');
+const propre = (x, n) => String(x == null ? '' : x).replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, n);
+
+// --- État de cette fenêtre. Aucune clé n'est gardée, et rien de tiré de la passkey ne part vers le jeu.
+let site = null;          // adresse du jeu, une fois vérifiée
+let refus = null;         // raison pour laquelle cette fenêtre refuse de servir
+let demande = null;       // demande du jeu en cours d'affichage
+let credCourant = null;   // identifiant de la dernière passkey utilisée ici
+let occupe = false;
+let mLocal = null, mBase = null;
+let visibilite = 'non mesurable';
+const journal = [];
+
+// --- Calculs : identiques à la page « Test du coffre »
+async function codeDe(prfOutput) {
+  const base = await crypto.subtle.importKey('raw', prfOutput, 'HKDF', false, ['deriveBits']);
+  new Uint8Array(prfOutput).fill(0); // la sortie PRF ne traîne pas en mémoire
+  const bits = new Uint8Array(await crypto.subtle.deriveBits(
+    { name: 'HKDF', hash: 'SHA-256', salt: SALT, info: te.encode(INFO_CODE) }, base, 32));
+  const h = hex(bits).toUpperCase();
+  return h.slice(0, 4) + '-' + h.slice(4);
+}
+const prfDe = (cred) => {
+  const ext = cred.getClientExtensionResults ? cred.getClientExtensionResults() : {};
+  const prf = ext && ext.prf ? ext.prf : null;
+  const first = prf && prf.results && prf.results.first ? prf.results.first : null;
+  return { active: prf ? (typeof prf.enabled === 'boolean' ? prf.enabled : null) : false,
+           sortie: first && first.byteLength === 32 ? first : null };
+};
+// Octet de drapeaux : 0x04 = la personne a été vérifiée, 0x08 = synchronisable, 0x10 = synchronisée.
+const drapeaux = (authData) => {
+  if (!authData || authData.byteLength < 37) return { uv: null, be: null, bs: null };
+  const f = new Uint8Array(authData)[32];
+  return { uv: !!(f & 0x04), be: !!(f & 0x08), bs: !!(f & 0x10) };
+};
+// Ce que le navigateur écrit lui-même dans la réponse : sommes-nous dans un cadre, et sous quel site.
+const clientDe = (cred) => {
+  try {
+    const c = JSON.parse(td.decode(cred.response.clientDataJSON));
+    return { cross: typeof c.crossOrigin === 'boolean' ? c.crossOrigin : null, top: typeof c.topOrigin === 'string' ? c.topOrigin : null };
+  } catch (_) { return { cross: null, top: null }; }
+};
+const politique = (nom) => {
+  try {
+    const fp = document.featurePolicy || document.permissionsPolicy;
+    if (fp && fp.allowsFeature) return !!fp.allowsFeature(nom);
+  } catch (_) {}
+  return null;
+};
+async function numeroDe(rawId) {
+  return hex(new Uint8Array(await crypto.subtle.digest('SHA-256', rawId)).slice(0, 3)).toUpperCase();
+}
+function nomDuTest() {
+  const d = new Date(), p = (n) => String(n).padStart(2, '0');
+  return 'fenetre-test-' + p(d.getDate()) + '-' + p(d.getMonth() + 1) + '-' + p(d.getHours()) + 'h' + p(d.getMinutes());
+}
+function creerPasskey(etiquette) {
+  return navigator.credentials.create({ publicKey: {
+    challenge: rand(32),
+    rp: { name: 'Test du coffre', id: location.hostname },
+    user: { id: rand(16), name: etiquette, displayName: etiquette },
+    pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }],
+    authenticatorSelection: { authenticatorAttachment: 'platform', residentKey: 'required', requireResidentKey: true, userVerification: 'required' },
+    attestation: 'none',
+    timeout: 120000,
+    extensions: { prf: { eval: { first: PRF_INPUT } } },
+  } });
+}
+function demanderPasskey(credId) {
+  return navigator.credentials.get({ publicKey: {
+    challenge: rand(32),
+    rpId: location.hostname,
+    userVerification: 'required',
+    timeout: 120000,
+    allowCredentials: credId ? [{ type: 'public-key', id: unb64u(credId) }] : [],
+    extensions: { prf: { eval: { first: PRF_INPUT } } },
+  } });
+}
+
+// --- Stockage de cette fenêtre. Dans un cadre, le navigateur peut le séparer par site, le vider ou le refuser.
+function nouveauMarqueur() { return { id: hex(rand(3)).toUpperCase(), t: Date.now() }; }
+function marqueurLocal() {
+  try {
+    let m = JSON.parse(localStorage.getItem(STORE + '/marqueur') || 'null');
+    if (!m || !m.id) { m = nouveauMarqueur(); localStorage.setItem(STORE + '/marqueur', JSON.stringify(m)); }
+    return m;
+  } catch (e) { return { erreur: e && e.name ? e.name : 'Erreur' }; }
+}
+function marqueurBase() {
+  return new Promise((fin) => {
+    let fini = false;
+    const rendre = (v) => { if (!fini) { fini = true; fin(v); } };
+    const nom = (e) => (e && e.name ? e.name : 'Erreur');
+    setTimeout(() => rendre({ erreur: 'sans-reponse' }), 4000);
+    try {
+      const dem = indexedDB.open(STORE, 1);
+      dem.onupgradeneeded = () => dem.result.createObjectStore('kv');
+      dem.onerror = () => rendre({ erreur: nom(dem.error) });
+      dem.onblocked = () => rendre({ erreur: 'bloque' });
+      dem.onsuccess = () => {
+        const db = dem.result;
+        try {
+          const tx = db.transaction('kv', 'readwrite'), st = tx.objectStore('kv');
+          const lu = st.get('marqueur');
+          let m = null;
+          lu.onsuccess = () => { m = lu.result; if (!m || !m.id) { m = nouveauMarqueur(); st.put(m, 'marqueur'); } };
+          tx.oncomplete = () => { db.close(); rendre(m || { erreur: 'vide' }); };
+          tx.onerror = tx.onabort = () => { db.close(); rendre({ erreur: nom(tx.error) }); };
+        } catch (e) { try { db.close(); } catch (_) {} rendre({ erreur: nom(e) }); }
+      };
+    } catch (e) { rendre({ erreur: nom(e) }); }
+  });
+}
+function retenir(rawId) {
+  credCourant = b64u(rawId);
+  try { localStorage.setItem(STORE + '/cred', credCourant); } catch (_) {}
+}
+try { credCourant = localStorage.getItem(STORE + '/cred') || null; } catch (_) {}
+
+// --- Messages vers le jeu. Le navigateur ne les remet qu'à un site enregistré.
+function versLeJeu(message) {
+  if (!cible || refus) return;
+  for (const o of (site ? [site] : SITES_ENREGISTRES)) { try { cible.postMessage(message, o); } catch (_) {} }
+}
+
+// --- Affichage
+function dire(id, texte, sorte) {
+  const el = $(id);
+  el.textContent = texte || '';
+  el.className = 'status' + (sorte ? ' ' + sorte : '');
+}
+function direAvecCode(id, texte, code) {
+  dire(id, texte, 'ok');
+  const span = document.createElement('span');
+  span.className = 'code';
+  span.textContent = code;
+  $(id).appendChild(span);
+}
+function expliquer(e) {
+  const n = e && e.name;
+  if (n === 'NotAllowedError') return 'Annulé, ou refusé par l\'appareil. Tu peux réessayer.';
+  if (n === 'SecurityError') return 'Cette adresse n\'est pas autorisée pour les passkeys.';
+  if (n === 'NotSupportedError') return 'Ce navigateur ne sait pas faire cette opération.';
+  if (n === 'InvalidStateError') return 'Une passkey identique existe déjà sur cet appareil.';
+  if (n === 'PrfAbsent') return 'La passkey a répondu, mais sans la clé du coffre.';
+  return 'Erreur : ' + (n || 'inconnue');
+}
+const detail = (e) => (e && e.name ? e.name : 'Erreur') + (e && e.message ? ' : ' + propre(e.message, 90) : '');
+const age = (m) => Math.max(0, Math.round((Date.now() - m.t) / 60000)) + ' min';
+const direMarqueur = (m) => (!m ? 'pas encore lu' : m.erreur ? 'indisponible (' + m.erreur + ')' : m.id + ', cree il y a ' + age(m));
+function texteRapport() {
+  return [
+    'RESULTAT TEST FENETRE v1',
+    'date : ' + new Date().toISOString(),
+    'navigateur : ' + navigator.userAgent,
+    'mode : ' + MODE,
+    'site du jeu, dit par le navigateur : ' + (ancetres ? (ancetres.join(' > ') || 'aucun') : 'inconnu'),
+    'site du jeu, verifie par message : ' + (site || 'aucun'),
+    'refus de cette fenetre : ' + (refus || 'non'),
+    'permission ouvrir / creer : ' + oui(politique('publickey-credentials-get')) + ' / ' + oui(politique('publickey-credentials-create')),
+    'stockage local : ' + direMarqueur(mLocal),
+    'base locale : ' + direMarqueur(mBase),
+    '---',
+  ].concat(journal).join('\n');
+}
+function majRapport() { $('rapport').value = texteRapport(); }
+function noter(ligne) { journal.push(ligne); majRapport(); }
+function majBoutons() {
+  const pret = window.isSecureContext && !!window.PublicKeyCredential;
+  const attente = INTEGRE && !ancetres && !site; // navigateur qui ne dit pas quel site nous affiche : on attend le jeu
+  const bloque = !pret || !!refus || attente;
+  $('b-ouvrir').disabled = bloque;
+  $('b-creer').disabled = bloque;
+  $('b-confirmer').disabled = bloque || !site;
+}
+function refuser(raison, texte) {
+  refus = raison;
+  $('refus').textContent = texte;
+  $('refus').hidden = false;
+  $('accueil').hidden = true;
+  $('demande').hidden = true;
+  majBoutons();
+  majRapport();
+}
+
+// --- Les deux gestes de base
+async function ouvrir() {
+  dire('s-accueil', 'Ton appareil te demande de confirmer…', 'wait');
+  const t0 = performance.now();
+  try {
+    const a = await demanderPasskey(credCourant);
+    const prf = prfDe(a), numero = await numeroDe(a.rawId);
+    const f = drapeaux(a.response && a.response.authenticatorData), c = clientDe(a);
+    if (SANS_PERMISSION) {
+      noter('[sans permission] ACCEPTE, ce n\'etait pas attendu : passkey ' + numero);
+      versLeJeu({ type: 'coffre-evenement', quoi: 'sans-permission', resultat: 'accepte' });
+      dire('s-accueil', 'Attention : le navigateur a accepté sans permission.', 'ko');
+      return;
+    }
+    if (!prf.sortie) throw Object.assign(new Error('passkey ' + numero + ', prf ' + oui(prf.active)), { name: 'PrfAbsent' });
+    const code = await codeDe(prf.sortie);
+    retenir(a.rawId);
+    noter('[ouvrir] ok : passkey ' + numero + ' | code ' + code + ' | personne verifiee ' + oui(f.uv) + ' | synchronisable ' + oui(f.be)
+      + ' | synchronisee ' + oui(f.bs) + ' | crossOrigin ' + oui(c.cross) + ' | topOrigin ' + (c.top || 'absent'));
+    versLeJeu({ type: 'coffre-evenement', quoi: 'ouvert', passkey: numero });
+    direAvecCode('s-accueil', 'Coffre ouvert. Passkey n° ' + numero + '. Code : ', code);
+  } catch (e) {
+    const ms = Math.round(performance.now() - t0);
+    if (SANS_PERMISSION) {
+      const nom = e && e.name ? e.name : 'Erreur';
+      noter('[sans permission] refuse : ' + nom + ' apres ' + ms + ' ms' + (ms > 1500 ? ' (lent : une demande est peut-etre apparue)' : ''));
+      versLeJeu({ type: 'coffre-evenement', quoi: 'sans-permission', resultat: 'refuse', erreur: nom, ms });
+      dire('s-accueil', 'Refusé par le navigateur, comme prévu.', 'ok');
+      return;
+    }
+    noter('[ouvrir] echec apres ' + ms + ' ms : ' + detail(e));
+    versLeJeu({ type: 'coffre-evenement', quoi: 'erreur', etape: 'ouvrir', erreur: e && e.name ? e.name : 'Erreur' });
+    dire('s-accueil', expliquer(e), 'ko');
+  }
+}
+async function creer() {
+  dire('s-accueil', 'Ton appareil te demande de confirmer…', 'wait');
+  const t0 = performance.now();
+  try {
+    const cred = await creerPasskey(nomDuTest());
+    const prf = prfDe(cred), numero = await numeroDe(cred.rawId);
+    const ad = cred.response && cred.response.getAuthenticatorData ? cred.response.getAuthenticatorData() : null;
+    const f = drapeaux(ad), c = clientDe(cred);
+    retenir(cred.rawId);
+    const debut = '[creer] ok : passkey ' + numero + ' | prf ' + oui(prf.active) + ' | personne verifiee ' + oui(f.uv) + ' | synchronisable ' + oui(f.be)
+      + ' | synchronisee ' + oui(f.bs) + ' | crossOrigin ' + oui(c.cross) + ' | topOrigin ' + (c.top || 'absent');
+    if (prf.sortie) {
+      const code = await codeDe(prf.sortie);
+      noter(debut + ' | cle du coffre des la creation oui | code ' + code);
+      versLeJeu({ type: 'coffre-evenement', quoi: 'cree', passkey: numero, direct: true });
+      direAvecCode('s-accueil', 'Coffre créé. Passkey n° ' + numero + '. Code : ', code);
+    } else {
+      noter(debut + ' | cle du coffre des la creation non');
+      versLeJeu({ type: 'coffre-evenement', quoi: 'cree', passkey: numero, direct: false });
+      dire('s-accueil', 'Coffre créé, passkey n° ' + numero + '. Touche « Ouvrir mon coffre » pour finir.', 'wait');
+    }
+  } catch (e) {
+    noter('[creer] echec apres ' + Math.round(performance.now() - t0) + ' ms : ' + detail(e));
+    versLeJeu({ type: 'coffre-evenement', quoi: 'erreur', etape: 'creer', erreur: e && e.name ? e.name : 'Erreur' });
+    dire('s-accueil', expliquer(e), 'ko');
+  }
+}
+
+// --- Une demande du jeu : on l'affiche ici, et rien n'est validé sans un toucher dans cette fenêtre.
+function lireDemande(m) {
+  if (!m || typeof m !== 'object') return null;
+  const d = { id: propre(m.id, 40), objet: propre(m.objet, 60), prix: propre(m.prix, 40), pour: propre(m.pour, 60) };
+  return d.id && d.objet && d.prix && d.pour ? d : null;
+}
+function demandeDuLien() {
+  const m = /[#&]d=([A-Za-z0-9_-]+)/.exec(location.hash);
+  if (!m) return null;
+  try { return lireDemande(JSON.parse(td.decode(unb64u(m[1])))); } catch (_) { return null; }
+}
+function direZone() {
+  if (!demande || !INTEGRE) return;
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    if (!demande) return;
+    const r = $('recap').getBoundingClientRect();
+    versLeJeu({ type: 'coffre-demande-affichee', id: demande.id, zone: { haut: r.top, gauche: r.left, largeur: r.width, hauteur: r.height } });
+  }));
+}
+function montrerDemande(d) {
+  demande = d;
+  $('r-objet').textContent = d.objet;
+  $('r-prix').textContent = d.prix;
+  $('r-pour').textContent = d.pour;
+  $('r-site').textContent = site ? 'Demande reçue de : ' + site : 'Vérification du site qui demande…';
+  $('accueil').hidden = true;
+  $('zone-rapport').hidden = true;
+  $('demande').hidden = false;
+  dire('s-demande', '');
+  majBoutons();
+  window.scrollTo(0, 0);
+  direZone();
+}
+function finDemande(texte, sorte) {
+  demande = null;
+  $('demande').hidden = true;
+  if (A_PART) {
+    $('fin').hidden = false;
+    dire('s-fin', texte + ' Tu peux revenir au jeu.', sorte);
+    setTimeout(() => { try { window.close(); } catch (_) {} }, 1500);
+  } else {
+    $('accueil').hidden = false;
+    $('zone-rapport').hidden = false;
+    dire('s-accueil', texte, sorte);
+  }
+}
+async function confirmer() {
+  const d = demande;
+  if (!d || !site) return;
+  dire('s-demande', 'Ton appareil te demande de confirmer…', 'wait');
+  const vu = visibilite;
+  try {
+    const a = await demanderPasskey(credCourant);
+    const prf = prfDe(a), numero = await numeroDe(a.rawId);
+    if (!prf.sortie) throw Object.assign(new Error('passkey ' + numero + ', prf ' + oui(prf.active)), { name: 'PrfAbsent' });
+    const code = await codeDe(prf.sortie);
+    const f = drapeaux(a.response && a.response.authenticatorData), c = clientDe(a);
+    retenir(a.rawId);
+    noter('[achat] valide : ' + d.objet + ' | ' + d.prix + ' | ' + d.pour + ' | passkey ' + numero + ' | code ' + code
+      + ' | recapitulatif ' + vu + ' | personne verifiee ' + oui(f.uv) + ' | crossOrigin ' + oui(c.cross) + ' | topOrigin ' + (c.top || 'absent'));
+    const reponse = { type: 'coffre-reponse', id: d.id, ok: true, approuve: { objet: d.objet, prix: d.prix, pour: d.pour }, passkey: numero, mode: MODE };
+    if (A_PART) reponse.marqueurs = { local: mLocal && mLocal.id ? mLocal.id : null, base: mBase && mBase.id ? mBase.id : null };
+    versLeJeu(reponse);
+    finDemande('Validé : ' + d.objet + ', ' + d.prix + '.', 'ok');
+  } catch (e) {
+    noter('[achat] echec : ' + detail(e));
+    dire('s-demande', expliquer(e), 'ko');
+  }
+}
+function refuserDemande() {
+  const d = demande;
+  if (!d || occupe) return;
+  noter('[achat] refuse par le joueur : ' + d.objet + ' | ' + d.prix + ' | ' + d.pour);
+  versLeJeu({ type: 'coffre-reponse', id: d.id, ok: false, erreur: 'refus-du-joueur', mode: MODE });
+  finDemande('Refusé.', 'wait');
+}
+
+window.addEventListener('message', (ev) => {
+  if (refus || !cible || ev.source !== cible) return;
+  if (SITES_ENREGISTRES.indexOf(ev.origin) === -1) return;
+  const m = ev.data;
+  if (!m || typeof m !== 'object') return;
+  if (!site) {
+    site = ev.origin;
+    if (demande) $('r-site').textContent = 'Demande reçue de : ' + site;
+    majBoutons();
+    majRapport();
+  }
+  if (!INTEGRE || SANS_PERMISSION) return;
+  if (m.type === 'jeu-note') noter('[jeu] ' + propre(m.texte, 220));
+  if (m.type === 'jeu-annule' && demande && demande.id === propre(m.id, 40) && !occupe) {
+    noter('[achat] demande retiree par le jeu');
+    finDemande('Demande retirée par le jeu.', 'wait');
+  }
+  if (m.type === 'jeu-demande') {
+    const d = lireDemande(m);
+    if (!d) return;
+    if (demande || occupe) { versLeJeu({ type: 'coffre-reponse', id: d.id, ok: false, erreur: 'occupe', mode: MODE }); return; }
+    montrerDemande(d);
+  }
+});
+
+// --- Démarrage
+const seul = (fn) => async () => { if (occupe) return; occupe = true; try { await fn(); } finally { occupe = false; } };
+$('b-ouvrir').addEventListener('click', seul(ouvrir));
+$('b-creer').addEventListener('click', seul(creer));
+$('b-confirmer').addEventListener('click', seul(confirmer));
+$('b-refuser').addEventListener('click', refuserDemande);
+$('b-copier').addEventListener('click', async () => {
+  const t = $('rapport');
+  majRapport();
+  try {
+    await navigator.clipboard.writeText(t.value);
+    dire('s-rapport', 'Copié. Colle-le dans la conversation.', 'ok');
+  } catch (_) {
+    t.focus(); t.select();
+    let fait = false;
+    try { fait = document.execCommand('copy'); } catch (_) {}
+    dire('s-rapport', fait ? 'Copié. Colle-le dans la conversation.' : 'Sélectionné. Fais « Copier », puis colle-le dans la conversation.', fait ? 'ok' : 'wait');
+  }
+});
+
+(async () => {
+  $('contexte').textContent = INTEGRE
+    ? 'Cette fenêtre est affichée dans un autre site' + (ancetres && ancetres[0] ? ' : ' + ancetres[0] : '') + '.'
+    : A_PART ? 'Cette fenêtre est ouverte à part. Regarde l\'adresse en haut : c\'est celle du coffre.'
+    : 'Cette fenêtre est ouverte seule.';
+  if (SANS_PERMISSION) {
+    $('b-ouvrir').textContent = 'Essayer d\'ouvrir mon coffre';
+    $('b-creer').hidden = true;
+    $('zone-rapport').hidden = true;
+    $('contexte').textContent = 'Ce cadre n\'a pas reçu la permission d\'utiliser Face ID. Le navigateur doit refuser. Si une demande Face ID apparaît, c\'est un échec.';
+  }
+  if (!(window.isSecureContext && window.PublicKeyCredential)) dire('s-accueil', 'Ce navigateur ne permet pas les passkeys ici.', 'ko');
+
+  if (INTEGRE && ancetres) {
+    if (ancetres.length !== 1) refuser('cadre imbrique', 'Cette fenêtre est affichée dans un cadre lui-même dans un cadre. Elle refuse de servir.');
+    else if (SITES_ENREGISTRES.indexOf(ancetres[0]) === -1) refuser('site non enregistre', 'Ce site n\'est pas enregistré auprès du coffre. Cette fenêtre refuse de servir ici.');
+  }
+  if (A_PART) {
+    try { const o = new URL(document.referrer).origin; if (SITES_ENREGISTRES.indexOf(o) !== -1) site = o; } catch (_) {}
+    $('zone-rapport').hidden = !!demandeDuLien();
+  }
+  majBoutons();
+
+  try {
+    new IntersectionObserver((es) => {
+      for (const e of es) visibilite = typeof e.isVisible === 'boolean' ? (e.isVisible ? 'visible' : 'recouvert ou partiel') : 'non mesurable';
+    }, { threshold: [1], trackVisibility: true, delay: 100 }).observe($('recap'));
+  } catch (_) {}
+  try {
+    new ResizeObserver(() => {
+      if (!INTEGRE) return;
+      versLeJeu({ type: 'coffre-taille', hauteur: Math.ceil(document.documentElement.getBoundingClientRect().height) });
+      direZone();
+    }).observe(document.documentElement);
+  } catch (_) {}
+
+  versLeJeu({ type: 'coffre-pret', mode: MODE });
+  mLocal = marqueurLocal();
+  majRapport();
+
+  if (A_PART) {
+    const d = demandeDuLien();
+    if (d) {
+      montrerDemande(d);
+      setTimeout(() => {
+        if (!site && demande) { $('r-site').textContent = ''; dire('s-demande', 'Impossible de vérifier quel site a ouvert cette fenêtre. Rien ne sera validé.', 'ko'); }
+      }, 2500);
+    }
+  }
+  if (MODE === 'directe' && demandeDuLien()) {
+    noter('[fenetre a part] ouverte sans lien avec le jeu : demande ignoree');
+    dire('s-accueil', 'Cette fenêtre a reçu une demande, mais elle ne sait pas quel site l\'a ouverte. Rien ne sera validé.', 'ko');
+  }
+  if (INTEGRE && !ancetres) {
+    setTimeout(() => { if (!site && !refus) refuser('site non verifie', 'Le site qui affiche cette fenêtre ne s\'est pas fait reconnaître. Elle refuse de servir ici.'); }, 3000);
+  }
+  mBase = await marqueurBase();
+  majRapport();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,1164 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<!-- Cette page ne charge rien d'extérieur et ne parle à aucun serveur. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; require-trusted-types-for 'script'">
+<title>Mon coffre (test)</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f5f6f8; --card: #ffffff; --ink: #1b2130; --muted: #5c6577; --line: #dde2ea;
+    --accent: #2c5fd1; --accent-ink: #ffffff; --ok: #1d8a4b; --ko: #c23a2b; --wait: #a66a12;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #11141a; --card: #1a1f28; --ink: #eef1f6; --muted: #9ba5b6; --line: #2b323f;
+      --accent: #7ea4ff; --accent-ink: #0d1220; --ok: #53c684; --ko: #ff8273; --wait: #e5b663;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  main { max-width: 560px; margin: 0 auto; padding: 20px 16px 56px; }
+  h1 { font-size: 26px; line-height: 1.2; margin: 8px 0 6px; }
+  h2 { font-size: 18px; margin: 0 0 6px; }
+  p { margin: 0 0 10px; }
+  .muted { color: var(--muted); font-size: 14px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; margin-top: 14px; }
+  button { font: inherit; font-weight: 600; border: 0; border-radius: 10px; padding: 12px 16px; min-height: 46px;
+           background: var(--accent); color: var(--accent-ink); cursor: pointer; width: 100%; margin-top: 8px; }
+  button.second { background: transparent; color: var(--accent); border: 1px solid var(--line); }
+  button.petit { width: auto; min-height: 40px; padding: 6px 12px; margin: 0; font-weight: 500; font-size: 14px; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  .status { margin-top: 10px; font-size: 15px; overflow-wrap: anywhere; }
+  .status.ok { color: var(--ok); } .status.ko { color: var(--ko); } .status.wait { color: var(--wait); }
+  .adresse { font: 600 15px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow-wrap: anywhere; }
+  .mots { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; margin: 10px 0; padding: 0; list-style: none; }
+  .mots li, .carte { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; background: var(--card); color: var(--ink); font: inherit; }
+  .mots li span { color: var(--muted); font-size: 13px; margin-right: 6px; }
+  .cartes { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+  .carte { width: auto; min-height: 44px; margin: 0; font-weight: 500; cursor: pointer; }
+  .carte.posee { opacity: .35; }
+  .carte.fausse { border-color: var(--ko); color: var(--ko); }
+  input[type="text"], textarea { width: 100%; padding: 10px; border-radius: 10px; border: 1px solid var(--line);
+           background: transparent; color: var(--ink); font: inherit; }
+  textarea { min-height: 120px; font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; resize: vertical; margin-top: 6px; }
+  #r-texte { font-size: 16px; } /* en dessous de 16, l'iPhone zoome dans la page dès qu'on touche le champ */
+  .saisie { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; margin: 10px 0; }
+  details { margin-top: 10px; } summary { cursor: pointer; color: var(--accent); font-weight: 500; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main id="page-racine">
+  <h1>Mon coffre</h1>
+  <p class="muted">Page de test. Les clés créées ici sont jetables et ne protègent rien de réel. Version 1.</p>
+  <div class="status ko" id="blocage" hidden></div>
+  <section class="card" id="v-accueil" hidden>
+    <h2>Crée ton coffre</h2>
+    <p>Ton coffre garde la clé de ton wallet. Il ne s'ouvre qu'avec ton appareil.</p>
+    <p class="muted">Ton appareil va te demander Face ID, ton empreinte ou ton code.</p>
+    <button id="b-creer">Créer mon coffre</button>
+    <button id="b-activer" hidden>Dernier geste : fermer mon coffre</button>
+    <button id="b-jai" class="second">J'ai déjà un coffre</button>
+    <button id="b-illisible" class="second" hidden>Effacer le coffre illisible</button>
+    <div class="status" id="s-accueil"></div>
+  </section>
+
+  <section class="card" id="v-coffre" hidden>
+    <h2>Ton coffre</h2>
+    <p class="muted">Adresse de ton wallet, sur le réseau de test de Solana</p>
+    <p class="adresse" id="adresse"></p>
+    <button id="b-copier-adresse" class="second petit">Copier l'adresse</button>
+    <div class="status" id="etat-secours"></div>
+    <button id="b-mission">Faire ma mission de secours</button>
+    <button id="b-ouvrir" class="second">Ouvrir mon coffre</button>
+    <button id="b-emporter" class="second">Emporter mon coffre fermé</button>
+    <button id="b-effacer" class="second">Effacer de cet appareil</button>
+    <div class="status" id="s-coffre"></div>
+  </section>
+
+  <section class="card" id="v-mission" hidden>
+    <h2>Mission : ton secours</h2>
+    <div id="m-intro">
+      <p>Si tu perds ton téléphone, 12 mots te rendront ton wallet. Ta mission : les noter, puis les remettre dans l'ordre.</p>
+      <details>
+        <summary>À quoi ça sert ?</summary>
+        <p class="muted">Ces 12 mots sont un double de la clé de ton coffre. Avec eux et ton coffre fermé, tu retrouves ton wallet sur n'importe quel appareil. Personne d'autre ne les connaît, nous non plus. Si tu les perds en même temps que tes appareils, personne ne pourra ouvrir ton coffre. Ne les donne jamais à personne.</p>
+      </details>
+      <button id="b-m-voir">Voir mes 12 mots</button>
+    </div>
+    <div id="m-mots" hidden>
+      <p>Note ces 12 mots sur un papier, dans l'ordre. Pas de capture d'écran.</p>
+      <ol class="mots" id="m-liste"></ol>
+      <button id="b-m-note">C'est noté, je continue</button>
+    </div>
+    <div id="m-cartes" hidden>
+      <p>Touche les mots dans l'ordre, du premier au douzième.</p>
+      <p class="muted" id="m-avance"></p>
+      <div class="cartes" id="m-jeu"></div>
+      <button id="b-m-revoir" class="second">Revoir mes mots</button>
+    </div>
+    <div id="m-fin" hidden>
+      <p>Tes 12 mots ouvrent ton coffre fermé. Garde les deux : ton papier en lieu sûr, et ton coffre fermé, que tu peux emporter maintenant.</p>
+      <button id="b-m-emporter">Emporter mon coffre fermé</button>
+      <button id="b-m-terminer" class="second">Terminer</button>
+    </div>
+    <div class="status" id="s-mission"></div>
+    <button id="b-m-annuler" class="second">Annuler</button>
+  </section>
+
+  <section class="card" id="v-emporter" hidden>
+    <h2>Ton coffre fermé</h2>
+    <p>C'est ton coffre, verrouillé. Sans ton appareil ou tes 12 mots, personne ne peut l'ouvrir. Tes 12 mots ouvrent ce coffre fermé : garde les deux.</p>
+    <button id="b-fichier">Enregistrer le fichier</button>
+    <button id="b-copier-coffre" class="second">Copier le texte</button>
+    <textarea id="texte-coffre" readonly></textarea>
+    <div class="status" id="s-emporter"></div>
+    <button id="b-e-retour" class="second">Retour</button>
+  </section>
+
+  <section class="card" id="v-retrouver" hidden>
+    <h2>Retrouver mon coffre</h2>
+    <div id="r-entree">
+      <p>Colle ici le texte de ton coffre fermé, ou choisis son fichier.</p>
+      <textarea id="r-texte" placeholder="Texte du coffre fermé"></textarea>
+      <p><input type="file" id="r-fichier" accept=".json,.txt,application/json,text/plain"></p>
+      <button id="b-r-lire">Continuer</button>
+    </div>
+    <div id="r-choix" hidden>
+      <p class="muted">Coffre reconnu. Adresse de son wallet :</p>
+      <p class="adresse" id="r-adresse"></p>
+      <button id="b-r-appareil">Ouvrir avec cet appareil</button>
+      <button id="b-r-mots" class="second">Ouvrir avec mes 12 mots</button>
+    </div>
+    <div id="r-mots" hidden>
+      <p>Écris tes 12 mots dans l'ordre.</p>
+      <div class="saisie" id="r-saisie"></div>
+      <button id="b-r-ouvrir">Ouvrir</button>
+    </div>
+    <div class="status" id="s-retrouver"></div>
+    <button id="b-r-retour" class="second">Retour</button>
+  </section>
+
+  <section class="card" id="v-resultat">
+    <h2>Pour le test</h2>
+    <button id="b-verifier" class="second">Vérifier cette page</button>
+    <div class="status" id="s-verifier"></div>
+    <button id="b-copier-resultat" class="second">Copier le résultat</button>
+    <textarea id="resultat" readonly></textarea>
+    <div class="status" id="s-resultat"></div>
+  </section>
+</main>
+
+<script id="noyau">
+// Le noyau du coffre : ce qui chiffre, ouvre et vérifie. Il ne touche ni à l'écran ni au stockage.
+// Format décrit dans FORMAT.md. Briques : WebCrypto du navigateur, rien d'autre.
+const Coffre = (() => {
+  'use strict';
+  const te = new TextEncoder();
+  const PREFIXE = 'coffre/v1';
+  const ENTREE_PRF = te.encode(PREFIXE + '/prf');
+  const INFO_PASSKEY = PREFIXE + '/kek/passkey', INFO_SECOURS = PREFIXE + '/kek/secours';
+  const DEFI = PREFIXE + '/preuve|';
+  // Listes officielles de l'encodage en mots (BIP-39). Leurs empreintes sont revérifiées par les essais.
+  const EMPREINTES = {
+    fr: 'ebc3959ab7801a1df6bac4fa7d970652f1df76b683cd2f4003c941c63d517e59',
+    en: '2f5eed53a4727b4bf8880d8f3f199efc90e58503646d9ff8eff3a2ed3b24dbda',
+  };
+  const LISTES = {
+    fr: 'abaisser abandon abdiquer abeille abolir aborder aboutir aboyer abrasif abreuver abriter abroger abrupt absence absolu absurde abusif abyssal académie acajou acarien accabler accepter acclamer accolade accroche accuser acerbe achat acheter aciduler acier acompte acquérir acronyme acteur actif actuel adepte adéquat adhésif adjectif adjuger admettre admirer adopter adorer adoucir adresse adroit adulte adverbe aérer aéronef affaire affecter affiche affreux affubler agacer agencer agile agiter agrafer agréable agrume aider aiguille ailier aimable aisance ajouter ajuster alarmer alchimie alerte algèbre algue aliéner aliment alléger alliage allouer allumer alourdir alpaga altesse alvéole amateur ambigu ambre aménager amertume amidon amiral amorcer amour amovible amphibie ampleur amusant analyse anaphore anarchie anatomie ancien anéantir angle angoisse anguleux animal annexer annonce annuel anodin anomalie anonyme anormal antenne antidote anxieux apaiser apéritif aplanir apologie appareil appeler apporter appuyer aquarium aqueduc arbitre arbuste ardeur ardoise argent arlequin armature armement armoire armure arpenter arracher arriver arroser arsenic artériel article aspect asphalte aspirer assaut asservir assiette associer assurer asticot astre astuce atelier atome atrium atroce attaque attentif attirer attraper aubaine auberge audace audible augurer aurore automne autruche avaler avancer avarice avenir averse aveugle aviateur avide avion aviser avoine avouer avril axial axiome badge bafouer bagage baguette baignade balancer balcon baleine balisage bambin bancaire bandage banlieue bannière banquier barbier baril baron barque barrage bassin bastion bataille bateau batterie baudrier bavarder belette bélier belote bénéfice berceau berger berline bermuda besace besogne bétail beurre biberon bicycle bidule bijou bilan bilingue billard binaire biologie biopsie biotype biscuit bison bistouri bitume bizarre blafard blague blanchir blessant blinder blond bloquer blouson bobard bobine boire boiser bolide bonbon bondir bonheur bonifier bonus bordure borne botte boucle boueux bougie boulon bouquin bourse boussole boutique boxeur branche brasier brave brebis brèche breuvage bricoler brigade brillant brioche brique brochure broder bronzer brousse broyeur brume brusque brutal bruyant buffle buisson bulletin bureau burin bustier butiner butoir buvable buvette cabanon cabine cachette cadeau cadre caféine caillou caisson calculer calepin calibre calmer calomnie calvaire camarade caméra camion campagne canal caneton canon cantine canular capable caporal caprice capsule capter capuche carabine carbone caresser caribou carnage carotte carreau carton cascade casier casque cassure causer caution cavalier caverne caviar cédille ceinture céleste cellule cendrier censurer central cercle cérébral cerise cerner cerveau cesser chagrin chaise chaleur chambre chance chapitre charbon chasseur chaton chausson chavirer chemise chenille chéquier chercher cheval chien chiffre chignon chimère chiot chlorure chocolat choisir chose chouette chrome chute cigare cigogne cimenter cinéma cintrer circuler cirer cirque citerne citoyen citron civil clairon clameur claquer classe clavier client cligner climat clivage cloche clonage cloporte cobalt cobra cocasse cocotier coder codifier coffre cogner cohésion coiffer coincer colère colibri colline colmater colonel combat comédie commande compact concert conduire confier congeler connoter consonne contact convexe copain copie corail corbeau cordage corniche corpus correct cortège cosmique costume coton coude coupure courage couteau couvrir coyote crabe crainte cravate crayon créature créditer crémeux creuser crevette cribler crier cristal critère croire croquer crotale crucial cruel crypter cubique cueillir cuillère cuisine cuivre culminer cultiver cumuler cupide curatif curseur cyanure cycle cylindre cynique daigner damier danger danseur dauphin débattre débiter déborder débrider débutant décaler décembre déchirer décider déclarer décorer décrire décupler dédale déductif déesse défensif défiler défrayer dégager dégivrer déglutir dégrafer déjeuner délice déloger demander demeurer démolir dénicher dénouer dentelle dénuder départ dépenser déphaser déplacer déposer déranger dérober désastre descente désert désigner désobéir dessiner destrier détacher détester détourer détresse devancer devenir deviner devoir diable dialogue diamant dicter différer digérer digital digne diluer dimanche diminuer dioxyde directif diriger discuter disposer dissiper distance divertir diviser docile docteur dogme doigt domaine domicile dompter donateur donjon donner dopamine dortoir dorure dosage doseur dossier dotation douanier double douceur douter doyen dragon draper dresser dribbler droiture duperie duplexe durable durcir dynastie éblouir écarter écharpe échelle éclairer éclipse éclore écluse école économie écorce écouter écraser écrémer écrivain écrou écume écureuil édifier éduquer effacer effectif effigie effort effrayer effusion égaliser égarer éjecter élaborer élargir électron élégant éléphant élève éligible élitisme éloge élucider éluder emballer embellir embryon émeraude émission emmener émotion émouvoir empereur employer emporter emprise émulsion encadrer enchère enclave encoche endiguer endosser endroit enduire énergie enfance enfermer enfouir engager engin englober énigme enjamber enjeu enlever ennemi ennuyeux enrichir enrobage enseigne entasser entendre entier entourer entraver énumérer envahir enviable envoyer enzyme éolien épaissir épargne épatant épaule épicerie épidémie épier épilogue épine épisode épitaphe époque épreuve éprouver épuisant équerre équipe ériger érosion erreur éruption escalier espadon espèce espiègle espoir esprit esquiver essayer essence essieu essorer estime estomac estrade étagère étaler étanche étatique éteindre étendoir éternel éthanol éthique ethnie étirer étoffer étoile étonnant étourdir étrange étroit étude euphorie évaluer évasion éventail évidence éviter évolutif évoquer exact exagérer exaucer exceller excitant exclusif excuse exécuter exemple exercer exhaler exhorter exigence exiler exister exotique expédier explorer exposer exprimer exquis extensif extraire exulter fable fabuleux facette facile facture faiblir falaise fameux famille farceur farfelu farine farouche fasciner fatal fatigue faucon fautif faveur favori fébrile féconder fédérer félin femme fémur fendoir féodal fermer féroce ferveur festival feuille feutre février fiasco ficeler fictif fidèle figure filature filetage filière filleul filmer filou filtrer financer finir fiole firme fissure fixer flairer flamme flasque flatteur fléau flèche fleur flexion flocon flore fluctuer fluide fluvial folie fonderie fongible fontaine forcer forgeron formuler fortune fossile foudre fougère fouiller foulure fourmi fragile fraise franchir frapper frayeur frégate freiner frelon frémir frénésie frère friable friction frisson frivole froid fromage frontal frotter fruit fugitif fuite fureur furieux furtif fusion futur gagner galaxie galerie gambader garantir gardien garnir garrigue gazelle gazon géant gélatine gélule gendarme général génie genou gentil géologie géomètre géranium germe gestuel geyser gibier gicler girafe givre glace glaive glisser globe gloire glorieux golfeur gomme gonfler gorge gorille goudron gouffre goulot goupille gourmand goutte graduel graffiti graine grand grappin gratuit gravir grenat griffure griller grimper grogner gronder grotte groupe gruger grutier gruyère guépard guerrier guide guimauve guitare gustatif gymnaste gyrostat habitude hachoir halte hameau hangar hanneton haricot harmonie harpon hasard hélium hématome herbe hérisson hermine héron hésiter heureux hiberner hibou hilarant histoire hiver homard hommage homogène honneur honorer honteux horde horizon horloge hormone horrible houleux housse hublot huileux humain humble humide humour hurler hydromel hygiène hymne hypnose idylle ignorer iguane illicite illusion image imbiber imiter immense immobile immuable impact impérial implorer imposer imprimer imputer incarner incendie incident incliner incolore indexer indice inductif inédit ineptie inexact infini infliger informer infusion ingérer inhaler inhiber injecter injure innocent inoculer inonder inscrire insecte insigne insolite inspirer instinct insulter intact intense intime intrigue intuitif inutile invasion inventer inviter invoquer ironique irradier irréel irriter isoler ivoire ivresse jaguar jaillir jambe janvier jardin jauger jaune javelot jetable jeton jeudi jeunesse joindre joncher jongler joueur jouissif journal jovial joyau joyeux jubiler jugement junior jupon juriste justice juteux juvénile kayak kimono kiosque label labial labourer lacérer lactose lagune laine laisser laitier lambeau lamelle lampe lanceur langage lanterne lapin largeur larme laurier lavabo lavoir lecture légal léger légume lessive lettre levier lexique lézard liasse libérer libre licence licorne liège lièvre ligature ligoter ligue limer limite limonade limpide linéaire lingot lionceau liquide lisière lister lithium litige littoral livreur logique lointain loisir lombric loterie louer lourd loutre louve loyal lubie lucide lucratif lueur lugubre luisant lumière lunaire lundi luron lutter luxueux machine magasin magenta magique maigre maillon maintien mairie maison majorer malaxer maléfice malheur malice mallette mammouth mandater maniable manquant manteau manuel marathon marbre marchand mardi maritime marqueur marron marteler mascotte massif matériel matière matraque maudire maussade mauve maximal méchant méconnu médaille médecin méditer méduse meilleur mélange mélodie membre mémoire menacer mener menhir mensonge mentor mercredi mérite merle messager mesure métal météore méthode métier meuble miauler microbe miette mignon migrer milieu million mimique mince minéral minimal minorer minute miracle miroiter missile mixte mobile moderne moelleux mondial moniteur monnaie monotone monstre montagne monument moqueur morceau morsure mortier moteur motif mouche moufle moulin mousson mouton mouvant multiple munition muraille murène murmure muscle muséum musicien mutation muter mutuel myriade myrtille mystère mythique nageur nappe narquois narrer natation nation nature naufrage nautique navire nébuleux nectar néfaste négation négliger négocier neige nerveux nettoyer neurone neutron neveu niche nickel nitrate niveau noble nocif nocturne noirceur noisette nomade nombreux nommer normatif notable notifier notoire nourrir nouveau novateur novembre novice nuage nuancer nuire nuisible numéro nuptial nuque nutritif obéir objectif obliger obscur observer obstacle obtenir obturer occasion occuper océan octobre octroyer octupler oculaire odeur odorant offenser officier offrir ogive oiseau oisillon olfactif olivier ombrage omettre onctueux onduler onéreux onirique opale opaque opérer opinion opportun opprimer opter optique orageux orange orbite ordonner oreille organe orgueil orifice ornement orque ortie osciller osmose ossature otarie ouragan ourson outil outrager ouvrage ovation oxyde oxygène ozone paisible palace palmarès palourde palper panache panda pangolin paniquer panneau panorama pantalon papaye papier papoter papyrus paradoxe parcelle paresse parfumer parler parole parrain parsemer partager parure parvenir passion pastèque paternel patience patron pavillon pavoiser payer paysage peigne peintre pelage pélican pelle pelouse peluche pendule pénétrer pénible pensif pénurie pépite péplum perdrix perforer période permuter perplexe persil perte peser pétale petit pétrir peuple pharaon phobie phoque photon phrase physique piano pictural pièce pierre pieuvre pilote pinceau pipette piquer pirogue piscine piston pivoter pixel pizza placard plafond plaisir planer plaque plastron plateau pleurer plexus pliage plomb plonger pluie plumage pochette poésie poète pointe poirier poisson poivre polaire policier pollen polygone pommade pompier ponctuel pondérer poney portique position posséder posture potager poteau potion pouce poulain poumon pourpre poussin pouvoir prairie pratique précieux prédire préfixe prélude prénom présence prétexte prévoir primitif prince prison priver problème procéder prodige profond progrès proie projeter prologue promener propre prospère protéger prouesse proverbe prudence pruneau psychose public puceron puiser pulpe pulsar punaise punitif pupitre purifier puzzle pyramide quasar querelle question quiétude quitter quotient racine raconter radieux ragondin raideur raisin ralentir rallonge ramasser rapide rasage ratisser ravager ravin rayonner réactif réagir réaliser réanimer recevoir réciter réclamer récolter recruter reculer recycler rédiger redouter refaire réflexe réformer refrain refuge régalien région réglage régulier réitérer rejeter rejouer relatif relever relief remarque remède remise remonter remplir remuer renard renfort renifler renoncer rentrer renvoi replier reporter reprise reptile requin réserve résineux résoudre respect rester résultat rétablir retenir réticule retomber retracer réunion réussir revanche revivre révolte révulsif richesse rideau rieur rigide rigoler rincer riposter risible risque rituel rival rivière rocheux romance rompre ronce rondin roseau rosier rotatif rotor rotule rouge rouille rouleau routine royaume ruban rubis ruche ruelle rugueux ruiner ruisseau ruser rustique rythme sabler saboter sabre sacoche safari sagesse saisir salade salive salon saluer samedi sanction sanglier sarcasme sardine saturer saugrenu saumon sauter sauvage savant savonner scalpel scandale scélérat scénario sceptre schéma science scinder score scrutin sculpter séance sécable sécher secouer sécréter sédatif séduire seigneur séjour sélectif semaine sembler semence séminal sénateur sensible sentence séparer séquence serein sergent sérieux serrure sérum service sésame sévir sevrage sextuple sidéral siècle siéger siffler sigle signal silence silicium simple sincère sinistre siphon sirop sismique situer skier social socle sodium soigneux soldat soleil solitude soluble sombre sommeil somnoler sonde songeur sonnette sonore sorcier sortir sosie sottise soucieux soudure souffle soulever soupape source soutirer souvenir spacieux spatial spécial sphère spiral stable station sternum stimulus stipuler strict studieux stupeur styliste sublime substrat subtil subvenir succès sucre suffixe suggérer suiveur sulfate superbe supplier surface suricate surmener surprise sursaut survie suspect syllabe symbole symétrie synapse syntaxe système tabac tablier tactile tailler talent talisman talonner tambour tamiser tangible tapis taquiner tarder tarif tartine tasse tatami tatouage taupe taureau taxer témoin temporel tenaille tendre teneur tenir tension terminer terne terrible tétine texte thème théorie thérapie thorax tibia tiède timide tirelire tiroir tissu titane titre tituber toboggan tolérant tomate tonique tonneau toponyme torche tordre tornade torpille torrent torse tortue totem toucher tournage tousser toxine traction trafic tragique trahir train trancher travail trèfle tremper trésor treuil triage tribunal tricoter trilogie triomphe tripler triturer trivial trombone tronc tropical troupeau tuile tulipe tumulte tunnel turbine tuteur tutoyer tuyau tympan typhon typique tyran ubuesque ultime ultrason unanime unifier union unique unitaire univers uranium urbain urticant usage usine usuel usure utile utopie vacarme vaccin vagabond vague vaillant vaincre vaisseau valable valise vallon valve vampire vanille vapeur varier vaseux vassal vaste vecteur vedette végétal véhicule veinard véloce vendredi vénérer venger venimeux ventouse verdure vérin vernir verrou verser vertu veston vétéran vétuste vexant vexer viaduc viande victoire vidange vidéo vignette vigueur vilain village vinaigre violon vipère virement virtuose virus visage viseur vision visqueux visuel vital vitesse viticole vitrine vivace vivipare vocation voguer voile voisin voiture volaille volcan voltiger volume vorace vortex voter vouloir voyage voyelle wagon xénon yacht zèbre zénith zeste zoologie'.split(' '),
+    en: 'abandon ability able about above absent absorb abstract absurd abuse access accident account accuse achieve acid acoustic acquire across act action actor actress actual adapt add addict address adjust admit adult advance advice aerobic affair afford afraid again age agent agree ahead aim air airport aisle alarm album alcohol alert alien all alley allow almost alone alpha already also alter always amateur amazing among amount amused analyst anchor ancient anger angle angry animal ankle announce annual another answer antenna antique anxiety any apart apology appear apple approve april arch arctic area arena argue arm armed armor army around arrange arrest arrive arrow art artefact artist artwork ask aspect assault asset assist assume asthma athlete atom attack attend attitude attract auction audit august aunt author auto autumn average avocado avoid awake aware away awesome awful awkward axis baby bachelor bacon badge bag balance balcony ball bamboo banana banner bar barely bargain barrel base basic basket battle beach bean beauty because become beef before begin behave behind believe below belt bench benefit best betray better between beyond bicycle bid bike bind biology bird birth bitter black blade blame blanket blast bleak bless blind blood blossom blouse blue blur blush board boat body boil bomb bone bonus book boost border boring borrow boss bottom bounce box boy bracket brain brand brass brave bread breeze brick bridge brief bright bring brisk broccoli broken bronze broom brother brown brush bubble buddy budget buffalo build bulb bulk bullet bundle bunker burden burger burst bus business busy butter buyer buzz cabbage cabin cable cactus cage cake call calm camera camp can canal cancel candy cannon canoe canvas canyon capable capital captain car carbon card cargo carpet carry cart case cash casino castle casual cat catalog catch category cattle caught cause caution cave ceiling celery cement census century cereal certain chair chalk champion change chaos chapter charge chase chat cheap check cheese chef cherry chest chicken chief child chimney choice choose chronic chuckle chunk churn cigar cinnamon circle citizen city civil claim clap clarify claw clay clean clerk clever click client cliff climb clinic clip clock clog close cloth cloud clown club clump cluster clutch coach coast coconut code coffee coil coin collect color column combine come comfort comic common company concert conduct confirm congress connect consider control convince cook cool copper copy coral core corn correct cost cotton couch country couple course cousin cover coyote crack cradle craft cram crane crash crater crawl crazy cream credit creek crew cricket crime crisp critic crop cross crouch crowd crucial cruel cruise crumble crunch crush cry crystal cube culture cup cupboard curious current curtain curve cushion custom cute cycle dad damage damp dance danger daring dash daughter dawn day deal debate debris decade december decide decline decorate decrease deer defense define defy degree delay deliver demand demise denial dentist deny depart depend deposit depth deputy derive describe desert design desk despair destroy detail detect develop device devote diagram dial diamond diary dice diesel diet differ digital dignity dilemma dinner dinosaur direct dirt disagree discover disease dish dismiss disorder display distance divert divide divorce dizzy doctor document dog doll dolphin domain donate donkey donor door dose double dove draft dragon drama drastic draw dream dress drift drill drink drip drive drop drum dry duck dumb dune during dust dutch duty dwarf dynamic eager eagle early earn earth easily east easy echo ecology economy edge edit educate effort egg eight either elbow elder electric elegant element elephant elevator elite else embark embody embrace emerge emotion employ empower empty enable enact end endless endorse enemy energy enforce engage engine enhance enjoy enlist enough enrich enroll ensure enter entire entry envelope episode equal equip era erase erode erosion error erupt escape essay essence estate eternal ethics evidence evil evoke evolve exact example excess exchange excite exclude excuse execute exercise exhaust exhibit exile exist exit exotic expand expect expire explain expose express extend extra eye eyebrow fabric face faculty fade faint faith fall false fame family famous fan fancy fantasy farm fashion fat fatal father fatigue fault favorite feature february federal fee feed feel female fence festival fetch fever few fiber fiction field figure file film filter final find fine finger finish fire firm first fiscal fish fit fitness fix flag flame flash flat flavor flee flight flip float flock floor flower fluid flush fly foam focus fog foil fold follow food foot force forest forget fork fortune forum forward fossil foster found fox fragile frame frequent fresh friend fringe frog front frost frown frozen fruit fuel fun funny furnace fury future gadget gain galaxy gallery game gap garage garbage garden garlic garment gas gasp gate gather gauge gaze general genius genre gentle genuine gesture ghost giant gift giggle ginger giraffe girl give glad glance glare glass glide glimpse globe gloom glory glove glow glue goat goddess gold good goose gorilla gospel gossip govern gown grab grace grain grant grape grass gravity great green grid grief grit grocery group grow grunt guard guess guide guilt guitar gun gym habit hair half hammer hamster hand happy harbor hard harsh harvest hat have hawk hazard head health heart heavy hedgehog height hello helmet help hen hero hidden high hill hint hip hire history hobby hockey hold hole holiday hollow home honey hood hope horn horror horse hospital host hotel hour hover hub huge human humble humor hundred hungry hunt hurdle hurry hurt husband hybrid ice icon idea identify idle ignore ill illegal illness image imitate immense immune impact impose improve impulse inch include income increase index indicate indoor industry infant inflict inform inhale inherit initial inject injury inmate inner innocent input inquiry insane insect inside inspire install intact interest into invest invite involve iron island isolate issue item ivory jacket jaguar jar jazz jealous jeans jelly jewel job join joke journey joy judge juice jump jungle junior junk just kangaroo keen keep ketchup key kick kid kidney kind kingdom kiss kit kitchen kite kitten kiwi knee knife knock know lab label labor ladder lady lake lamp language laptop large later latin laugh laundry lava law lawn lawsuit layer lazy leader leaf learn leave lecture left leg legal legend leisure lemon lend length lens leopard lesson letter level liar liberty library license life lift light like limb limit link lion liquid list little live lizard load loan lobster local lock logic lonely long loop lottery loud lounge love loyal lucky luggage lumber lunar lunch luxury lyrics machine mad magic magnet maid mail main major make mammal man manage mandate mango mansion manual maple marble march margin marine market marriage mask mass master match material math matrix matter maximum maze meadow mean measure meat mechanic medal media melody melt member memory mention menu mercy merge merit merry mesh message metal method middle midnight milk million mimic mind minimum minor minute miracle mirror misery miss mistake mix mixed mixture mobile model modify mom moment monitor monkey monster month moon moral more morning mosquito mother motion motor mountain mouse move movie much muffin mule multiply muscle museum mushroom music must mutual myself mystery myth naive name napkin narrow nasty nation nature near neck need negative neglect neither nephew nerve nest net network neutral never news next nice night noble noise nominee noodle normal north nose notable note nothing notice novel now nuclear number nurse nut oak obey object oblige obscure observe obtain obvious occur ocean october odor off offer office often oil okay old olive olympic omit once one onion online only open opera opinion oppose option orange orbit orchard order ordinary organ orient original orphan ostrich other outdoor outer output outside oval oven over own owner oxygen oyster ozone pact paddle page pair palace palm panda panel panic panther paper parade parent park parrot party pass patch path patient patrol pattern pause pave payment peace peanut pear peasant pelican pen penalty pencil people pepper perfect permit person pet phone photo phrase physical piano picnic picture piece pig pigeon pill pilot pink pioneer pipe pistol pitch pizza place planet plastic plate play please pledge pluck plug plunge poem poet point polar pole police pond pony pool popular portion position possible post potato pottery poverty powder power practice praise predict prefer prepare present pretty prevent price pride primary print priority prison private prize problem process produce profit program project promote proof property prosper protect proud provide public pudding pull pulp pulse pumpkin punch pupil puppy purchase purity purpose purse push put puzzle pyramid quality quantum quarter question quick quit quiz quote rabbit raccoon race rack radar radio rail rain raise rally ramp ranch random range rapid rare rate rather raven raw razor ready real reason rebel rebuild recall receive recipe record recycle reduce reflect reform refuse region regret regular reject relax release relief rely remain remember remind remove render renew rent reopen repair repeat replace report require rescue resemble resist resource response result retire retreat return reunion reveal review reward rhythm rib ribbon rice rich ride ridge rifle right rigid ring riot ripple risk ritual rival river road roast robot robust rocket romance roof rookie room rose rotate rough round route royal rubber rude rug rule run runway rural sad saddle sadness safe sail salad salmon salon salt salute same sample sand satisfy satoshi sauce sausage save say scale scan scare scatter scene scheme school science scissors scorpion scout scrap screen script scrub sea search season seat second secret section security seed seek segment select sell seminar senior sense sentence series service session settle setup seven shadow shaft shallow share shed shell sheriff shield shift shine ship shiver shock shoe shoot shop short shoulder shove shrimp shrug shuffle shy sibling sick side siege sight sign silent silk silly silver similar simple since sing siren sister situate six size skate sketch ski skill skin skirt skull slab slam sleep slender slice slide slight slim slogan slot slow slush small smart smile smoke smooth snack snake snap sniff snow soap soccer social sock soda soft solar soldier solid solution solve someone song soon sorry sort soul sound soup source south space spare spatial spawn speak special speed spell spend sphere spice spider spike spin spirit split spoil sponsor spoon sport spot spray spread spring spy square squeeze squirrel stable stadium staff stage stairs stamp stand start state stay steak steel stem step stereo stick still sting stock stomach stone stool story stove strategy street strike strong struggle student stuff stumble style subject submit subway success such sudden suffer sugar suggest suit summer sun sunny sunset super supply supreme sure surface surge surprise surround survey suspect sustain swallow swamp swap swarm swear sweet swift swim swing switch sword symbol symptom syrup system table tackle tag tail talent talk tank tape target task taste tattoo taxi teach team tell ten tenant tennis tent term test text thank that theme then theory there they thing this thought three thrive throw thumb thunder ticket tide tiger tilt timber time tiny tip tired tissue title toast tobacco today toddler toe together toilet token tomato tomorrow tone tongue tonight tool tooth top topic topple torch tornado tortoise toss total tourist toward tower town toy track trade traffic tragic train transfer trap trash travel tray treat tree trend trial tribe trick trigger trim trip trophy trouble truck true truly trumpet trust truth try tube tuition tumble tuna tunnel turkey turn turtle twelve twenty twice twin twist two type typical ugly umbrella unable unaware uncle uncover under undo unfair unfold unhappy uniform unique unit universe unknown unlock until unusual unveil update upgrade uphold upon upper upset urban urge usage use used useful useless usual utility vacant vacuum vague valid valley valve van vanish vapor various vast vault vehicle velvet vendor venture venue verb verify version very vessel veteran viable vibrant vicious victory video view village vintage violin virtual virus visa visit visual vital vivid vocal voice void volcano volume vote voyage wage wagon wait walk wall walnut want warfare warm warrior wash wasp waste water wave way wealth weapon wear weasel weather web wedding weekend weird welcome west wet whale what wheat wheel when where whip whisper wide width wife wild will win window wine wing wink winner winter wire wisdom wise wish witness wolf woman wonder wood wool word work world worry worth wrap wreck wrestle wrist write wrong yard year yellow you young youth zebra zero zone zoo'.split(' '),
+  };
+
+  class Refus extends Error {
+    constructor(code, detail) { super(code + (detail ? ' : ' + detail : '')); this.name = code; this.detail = detail || ''; }
+  }
+
+  // --- Encodages. Ce ne sont pas du chiffrement.
+  const hex = (o) => Array.from(new Uint8Array(o), (b) => b.toString(16).padStart(2, '0')).join('');
+  const deHex = (s) => Uint8Array.from(s.match(/../g) || [], (h) => parseInt(h, 16));
+  const hasard = (n) => crypto.getRandomValues(new Uint8Array(n));
+  const b64u = (o) => {
+    let s = '';
+    for (const x of new Uint8Array(o)) s += String.fromCharCode(x);
+    return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  };
+  const deB64u = (s) => {
+    if (typeof s !== 'string' || !/^[A-Za-z0-9_-]*$/.test(s) || s.length % 4 === 1) throw new Refus('CoffreInvalide', 'encodage');
+    const bin = atob(s.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((s.length + 3) % 4));
+    const o = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) o[i] = bin.charCodeAt(i);
+    if (b64u(o) !== s) throw new Refus('CoffreInvalide', 'encodage non canonique');
+    return o;
+  };
+  const ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+  function base58(octets) {
+    const o = new Uint8Array(octets);
+    let zeros = 0;
+    while (zeros < o.length && o[zeros] === 0) zeros++;
+    let n = o.length ? BigInt('0x' + hex(o)) : 0n, s = '';
+    while (n > 0n) { s = ALPHABET[Number(n % 58n)] + s; n /= 58n; }
+    return '1'.repeat(zeros) + s;
+  }
+  function deBase58(texte, longueur) {
+    if (typeof texte !== 'string' || !texte.length || texte.length > 64) throw new Refus('CoffreInvalide', 'adresse');
+    let n = 0n;
+    for (const c of texte) {
+      const i = ALPHABET.indexOf(c);
+      if (i < 0) throw new Refus('CoffreInvalide', 'adresse');
+      n = n * 58n + BigInt(i);
+    }
+    let zeros = 0;
+    while (zeros < texte.length && texte[zeros] === '1') zeros++;
+    let h = n === 0n ? '' : n.toString(16);
+    if (h.length % 2) h = '0' + h;
+    const corps = deHex(h), o = new Uint8Array(zeros + corps.length);
+    o.set(corps, zeros);
+    if (o.length !== longueur || base58(o) !== texte) throw new Refus('CoffreInvalide', 'adresse');
+    return o;
+  }
+
+  // --- Les 12 mots : 128 bits et 4 bits de contrôle, en 12 paquets de 11 bits. Un encodage, pas une graine de wallet.
+  const nu = (m) => String(m).normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase().trim();
+  const INDEX = {};
+  for (const l of Object.keys(LISTES)) INDEX[l] = new Map(LISTES[l].map((m, i) => [nu(m), i]));
+  const langueConnue = (l) => Object.prototype.hasOwnProperty.call(LISTES, l);
+  async function motsDepuisSecret(secret, langue) {
+    const s = new Uint8Array(secret);
+    if (s.length !== 16 || !langueConnue(langue)) throw new Refus('MotsInvalides', 'secret');
+    const controle = new Uint8Array(await crypto.subtle.digest('SHA-256', s))[0] >> 4;
+    const n = (BigInt('0x' + hex(s)) << 4n) | BigInt(controle), mots = [];
+    for (let i = 11; i >= 0; i--) mots.push(LISTES[langue][Number((n >> BigInt(11 * i)) & 2047n)]);
+    return mots;
+  }
+  async function secretDepuisMots(mots, langue) {
+    if (!Array.isArray(mots) || mots.length !== 12 || !langueConnue(langue)) throw new Refus('MotsInvalides', 'nombre');
+    let n = 0n;
+    for (const m of mots) {
+      const i = INDEX[langue].get(nu(m));
+      if (i === undefined) throw new Refus('MotsInvalides', 'mot inconnu');
+      n = (n << 11n) | BigInt(i);
+    }
+    const secret = deHex((n >> 4n).toString(16).padStart(32, '0'));
+    const controle = new Uint8Array(await crypto.subtle.digest('SHA-256', secret))[0] >> 4;
+    if (Number(n & 15n) !== controle) { secret.fill(0); throw new Refus('MotsInvalides', 'controle'); }
+    return secret;
+  }
+  // Mots de la liste qui commencent par ce début, sans tenir compte des accents ni des majuscules.
+  function completer(debut, langue, max) {
+    const d = nu(debut);
+    if (!d || !langueConnue(langue)) return [];
+    const trouves = [];
+    for (const m of LISTES[langue]) { if (nu(m).startsWith(d)) { trouves.push(m); if (trouves.length >= (max || 6)) break; } }
+    return trouves;
+  }
+  const estUnMot = (m, langue) => langueConnue(langue) && INDEX[langue].has(nu(m));
+  // Mélange sans biais, pour les cartes de la mission.
+  function melanger(tableau) {
+    const t = tableau.slice();
+    for (let i = t.length - 1; i > 0; i--) {
+      const borne = Math.floor(0x100000000 / (i + 1)) * (i + 1);
+      let r;
+      do { r = crypto.getRandomValues(new Uint32Array(1))[0]; } while (r >= borne);
+      const j = r % (i + 1);
+      [t[i], t[j]] = [t[j], t[i]];
+    }
+    return t;
+  }
+
+  // --- Chaque chiffrement est lié à sa place dans son coffre : un morceau déplacé ne se déchiffre pas.
+  const lie = (role, c, plus) => te.encode([PREFIXE, role, c.id, c.adresse].concat(plus || []).join('|'));
+  const gcm = (iv, aad) => ({ name: 'AES-GCM', iv, additionalData: aad, tagLength: 128 });
+  async function kek(matiere, sel, info) {
+    const base = await crypto.subtle.importKey('raw', matiere, 'HKDF', false, ['deriveKey']);
+    return crypto.subtle.deriveKey({ name: 'HKDF', hash: 'SHA-256', salt: sel, info: te.encode(info) },
+      base, { name: 'AES-GCM', length: 256 }, false, ['wrapKey', 'unwrapKey']);
+  }
+
+  // --- E6 : on n'accepte que la forme exacte de la version 1. Rien n'est négociable.
+  function valider(o) {
+    const non = (d) => { throw new Refus('CoffreInvalide', d); };
+    const champs = (x, attendus) => {
+      if (!x || typeof x !== 'object' || Array.isArray(x)) non('forme');
+      if (Object.keys(x).sort().join(',') !== attendus.slice().sort().join(',')) non('champs');
+    };
+    const oct = (s, n) => { const b = deB64u(s); if (b.length !== n) non('longueur'); return b; };
+    champs(o, ['format', 'v', 'id', 'adresse', 'cle', 'acces', 'rappel']);
+    if (o.format !== 'coffre' || o.v !== 1) non('version');
+    oct(o.id, 16);
+    deBase58(o.adresse, 32);
+    champs(o.cle, ['iv', 'ct']); oct(o.cle.iv, 12); oct(o.cle.ct, 64);
+    if (!Array.isArray(o.acces) || o.acces.length !== 2) non('acces');
+    const [p, s] = o.acces;
+    champs(p, ['type', 'cred', 'sel', 'iv', 'ct']);
+    if (p.type !== 'passkey') non('acces');
+    const cred = deB64u(p.cred);
+    if (cred.length < 1 || cred.length > 1023) non('passkey');
+    oct(p.sel, 32); oct(p.iv, 12); oct(p.ct, 48);
+    champs(s, ['type', 'langue', 'sel', 'iv', 'ct']);
+    if (s.type !== 'secours' || typeof s.langue !== 'string' || !langueConnue(s.langue)) non('acces');
+    oct(s.sel, 32); oct(s.iv, 12); oct(s.ct, 48);
+    champs(o.rappel, ['iv', 'ct']); oct(o.rappel.iv, 12); oct(o.rappel.ct, 32);
+    return JSON.parse(JSON.stringify(o)); // une copie, que personne ne peut changer dans notre dos
+  }
+
+  // --- Ouvrir : désenvelopper la DEK, puis la clé, puis prouver que c'est bien la clé de l'adresse inscrite (E5).
+  async function ouvrir(c, kekAcces, acces, role, plus) {
+    let dek, cle;
+    try {
+      dek = await crypto.subtle.unwrapKey('raw', deB64u(acces.ct), kekAcces, gcm(deB64u(acces.iv), lie(role, c, plus)),
+        { name: 'AES-GCM', length: 256 }, false, ['unwrapKey', 'decrypt']);
+      cle = await crypto.subtle.unwrapKey('pkcs8', deB64u(c.cle.ct), dek, gcm(deB64u(c.cle.iv), lie('cle', c)),
+        { name: 'Ed25519' }, false, ['sign']);
+    } catch (e) {
+      if (e instanceof Refus) throw e;
+      throw new Refus('OuvertureRefusee');
+    }
+    const defi = new Uint8Array([...te.encode(DEFI), ...hasard(32)]);
+    const publique = await crypto.subtle.importKey('raw', deBase58(c.adresse, 32), { name: 'Ed25519' }, false, ['verify']);
+    const signature = await crypto.subtle.sign({ name: 'Ed25519' }, cle, defi);
+    if (!(await crypto.subtle.verify({ name: 'Ed25519' }, publique, signature, defi))) throw new Refus('PreuveEchouee');
+    return {
+      adresse: c.adresse,
+      langue: c.acces[1].langue,
+      // Les 12 mots, relus dans le coffre ouvert. Ils ne sortent de cette fonction que pour être montrés au joueur.
+      async lireMots() {
+        if (!dek) throw new Refus('OuvertureRefusee', 'coffre referme');
+        let secret;
+        try {
+          secret = new Uint8Array(await crypto.subtle.decrypt(gcm(deB64u(c.rappel.iv), lie('rappel', c)), dek, deB64u(c.rappel.ct)));
+        } catch (_) { throw new Refus('OuvertureRefusee', 'rappel'); }
+        const mots = await motsDepuisSecret(secret, c.acces[1].langue);
+        secret.fill(0);
+        return mots;
+      },
+      fermer() { dek = null; cle = null; },
+    };
+  }
+  async function ouvrirParPasskey(objet, sortiePrf) {
+    const c = valider(objet), a = c.acces[0];
+    if (new Uint8Array(sortiePrf).length !== 32) throw new Refus('OuvertureRefusee', 'sortie de la passkey');
+    return ouvrir(c, await kek(sortiePrf, deB64u(a.sel), INFO_PASSKEY), a, 'acces-passkey', [a.cred]);
+  }
+  async function ouvrirParSecours(objet, mots) {
+    const c = valider(objet), a = c.acces[1];
+    const secret = await secretDepuisMots(mots, a.langue);
+    const k = await kek(secret, deB64u(a.sel), INFO_SECOURS);
+    secret.fill(0);
+    return ouvrir(c, k, a, 'acces-secours', [a.langue]);
+  }
+
+  // --- Créer. La clé du wallet et la DEK n'existent sous forme exportable que le temps de cette fonction.
+  async function creer({ sortiePrf, cred, langue }) {
+    if (!langueConnue(langue)) throw new Refus('CoffreInvalide', 'langue');
+    const prf = new Uint8Array(sortiePrf).slice();
+    if (prf.length !== 32) throw new Refus('CoffreInvalide', 'sortie de la passkey');
+    const paire = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']);
+    const c = { format: 'coffre', v: 1, id: b64u(hasard(16)),
+      adresse: base58(await crypto.subtle.exportKey('raw', paire.publicKey)) };
+    const dek = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['wrapKey', 'unwrapKey', 'encrypt', 'decrypt']);
+    let iv = hasard(12), sel;
+    c.cle = { iv: b64u(iv), ct: b64u(await crypto.subtle.wrapKey('pkcs8', paire.privateKey, dek, gcm(iv, lie('cle', c)))) };
+    const credTexte = b64u(cred);
+    sel = hasard(32); iv = hasard(12);
+    const passkey = { type: 'passkey', cred: credTexte, sel: b64u(sel), iv: b64u(iv),
+      ct: b64u(await crypto.subtle.wrapKey('raw', dek, await kek(prf, sel, INFO_PASSKEY), gcm(iv, lie('acces-passkey', c, [credTexte])))) };
+    const secret = hasard(16);
+    sel = hasard(32); iv = hasard(12);
+    const secours = { type: 'secours', langue, sel: b64u(sel), iv: b64u(iv),
+      ct: b64u(await crypto.subtle.wrapKey('raw', dek, await kek(secret, sel, INFO_SECOURS), gcm(iv, lie('acces-secours', c, [langue])))) };
+    c.acces = [passkey, secours];
+    iv = hasard(12);
+    c.rappel = { iv: b64u(iv), ct: b64u(await crypto.subtle.encrypt(gcm(iv, lie('rappel', c)), dek, secret)) };
+    const mots = await motsDepuisSecret(secret, langue);
+    secret.fill(0);
+    // On repart de l'objet fini, comme le fera une ouverture, et par les deux chemins.
+    // S'il ne se rouvre pas par la passkey et par le secours, il n'est pas rendu.
+    const coffre = valider(c);
+    (await ouvrirParPasskey(coffre, prf)).fermer();
+    (await ouvrirParSecours(coffre, mots)).fermer();
+    prf.fill(0); mots.fill('');
+    return coffre;
+  }
+
+  async function numeroDePasskey(credTexte) {
+    return hex(new Uint8Array(await crypto.subtle.digest('SHA-256', deB64u(credTexte))).slice(0, 3)).toUpperCase();
+  }
+  // La liste embarquée, remise dans la forme exacte du fichier officiel, doit redonner son empreinte.
+  async function empreinteDeListe(langue) {
+    const texte = (LISTES[langue].join('\n') + '\n').normalize(langue === 'fr' ? 'NFD' : 'NFC');
+    return hex(await crypto.subtle.digest('SHA-256', te.encode(texte)));
+  }
+
+  return { ENTREE_PRF, EMPREINTES, LANGUES: Object.keys(LISTES), Refus,
+    creer, valider, ouvrirParPasskey, ouvrirParSecours,
+    motsDepuisSecret, secretDepuisMots, completer, estUnMot, melanger, nu,
+    base58, deBase58, b64u, deB64u, hex, deHex, hasard, numeroDePasskey, empreinteDeListe };
+})();
+</script>
+
+<script id="verification">
+// Les essais du noyau. Les mêmes tournent ici, dans le navigateur de l'appareil, et hors navigateur avant chaque commit.
+// Ils n'utilisent aucune passkey : la sortie de la passkey est remplacée par 32 octets tirés au hasard.
+const Verification = (() => {
+  'use strict';
+  const C = Coffre;
+  const copie = (o) => JSON.parse(JSON.stringify(o));
+  const refuse = async (fn, noms) => {
+    try { await fn(); } catch (e) { return noms.indexOf(e && e.name) !== -1 ? '' : 'refus inattendu : ' + (e && e.name); }
+    return 'accepte a tort';
+  };
+  // Change un octet d'un champ encodé, sans changer sa longueur.
+  const abimer = (texte) => { const o = C.deB64u(texte); o[0] ^= 1; return C.b64u(o); };
+
+  async function lancer() {
+    const res = [];
+    const essai = async (nom, fn) => {
+      try { const d = await fn(); res.push({ nom, ok: !d, detail: d || '' }); }
+      catch (e) { res.push({ nom, ok: false, detail: 'erreur : ' + (e && e.name) + ' ' + (e && e.message ? String(e.message).slice(0, 80) : '') }); }
+    };
+
+    await essai('les deux listes de mots sont exactement les listes officielles', async () => {
+      for (const l of C.LANGUES) if ((await C.empreinteDeListe(l)) !== C.EMPREINTES[l]) return 'empreinte differente : ' + l;
+    });
+    await essai('encodage en mots : quatre vecteurs publics', async () => {
+      const v = [
+        ['00000000000000000000000000000000', 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about'],
+        ['7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f', 'legal winner thank year wave sausage worth useful legal winner thank yellow'],
+        ['80808080808080808080808080808080', 'letter advice cage absurd amount doctor acoustic avoid letter advice cage above'],
+        ['ffffffffffffffffffffffffffffffff', 'zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo wrong'],
+      ];
+      for (const [h, m] of v) {
+        if ((await C.motsDepuisSecret(C.deHex(h), 'en')).join(' ') !== m) return 'vers les mots : ' + h;
+        if (C.hex(await C.secretDepuisMots(m.split(' '), 'en')) !== h) return 'depuis les mots : ' + h;
+      }
+    });
+    await essai('encodage en mots : aller et retour, en francais et en anglais, accents ou non', async () => {
+      for (const l of C.LANGUES) for (let i = 0; i < 20; i++) {
+        const s = C.hasard(16), mots = await C.motsDepuisSecret(s, l);
+        if (C.hex(await C.secretDepuisMots(mots, l)) !== C.hex(s)) return 'aller et retour : ' + l;
+        if (C.hex(await C.secretDepuisMots(mots.map((m) => ' ' + C.nu(m).toUpperCase() + ' '), l)) !== C.hex(s)) return 'sans accents : ' + l;
+      }
+    });
+    await essai('encodage en mots : un mot repete onze fois, et des formes inhabituelles de lettres', async () => {
+      for (const l of C.LANGUES) {
+        const mots = await C.motsDepuisSecret(new Uint8Array(16), l);
+        if (new Set(mots.slice(0, 11)).size !== 1) return 'repetition attendue : ' + l;
+        if (C.hex(await C.secretDepuisMots(mots, l)) !== '0'.repeat(32)) return 'aller et retour : ' + l;
+      }
+      const mots = await C.motsDepuisSecret(C.deHex('ffeeddccbbaa99887766554433221100'), 'fr');
+      const larges = mots.map((m) => m.normalize('NFD').replace(/[a-z]/g, (c) => String.fromCharCode(c.charCodeAt(0) + 0xfee0)));
+      if (C.hex(await C.secretDepuisMots(larges, 'fr')) !== 'ffeeddccbbaa99887766554433221100') return 'lettres larges';
+    });
+    await essai('encodage en mots : un mot faux, un mot deplace, onze mots sont refuses', async () => {
+      const mots = await C.motsDepuisSecret(C.deHex('000102030405060708090a0b0c0d0e0f'), 'fr');
+      const faux = mots.slice(); faux[3] = 'pamplemousse';
+      const deplace = mots.slice(); [deplace[0], deplace[1]] = [deplace[1], deplace[0]];
+      return (await refuse(() => C.secretDepuisMots(faux, 'fr'), ['MotsInvalides']))
+        || (deplace.join() === mots.join() ? '' : await refuse(() => C.secretDepuisMots(deplace, 'fr'), ['MotsInvalides']))
+        || (await refuse(() => C.secretDepuisMots(mots.slice(0, 11), 'fr'), ['MotsInvalides']));
+    });
+    await essai('adresse : vecteurs publics en base58', async () => {
+      const v = [['0000000000000000000000000000000000000000000000000000000000000000', '11111111111111111111111111111111'],
+        ['06ddf6e1d765a193d9cbe146ceeb79ac1cb485ed5f5b37913a8cf5857eff00a9', 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA']];
+      for (const [h, a] of v) {
+        if (C.base58(C.deHex(h)) !== a) return 'encodage : ' + a;
+        if (C.hex(C.deBase58(a, 32)) !== h) return 'decodage : ' + a;
+      }
+      return (await refuse(async () => C.deBase58('0OIl', 32), ['CoffreInvalide'])) || (await refuse(async () => C.deBase58('1111', 32), ['CoffreInvalide']));
+    });
+    await essai('signature Ed25519 : vecteur public (RFC 8032, essai 1)', async () => {
+      const pkcs8 = C.deHex('302e020100300506032b657004220420' + '9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60');
+      const cle = await crypto.subtle.importKey('pkcs8', pkcs8, { name: 'Ed25519' }, false, ['sign']);
+      const s = C.hex(await crypto.subtle.sign({ name: 'Ed25519' }, cle, new Uint8Array(0)));
+      const attendu = 'e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901555fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b';
+      if (s !== attendu) return 'signature differente';
+      const pub = await crypto.subtle.importKey('raw', C.deHex('d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a'), { name: 'Ed25519' }, false, ['verify']);
+      if (!(await crypto.subtle.verify({ name: 'Ed25519' }, pub, C.deHex(s), new Uint8Array(0)))) return 'verification';
+    });
+
+    // Deux coffres jetables, pour les essais qui suivent.
+    const prfA = C.hasard(32), prfB = C.hasard(32);
+    let A, B, motsA;
+    await essai('creer un coffre, le rouvrir par la passkey, meme adresse', async () => {
+      A = await C.creer({ sortiePrf: prfA, cred: C.hasard(20), langue: 'fr' });
+      B = await C.creer({ sortiePrf: prfB, cred: C.hasard(20), langue: 'en' });
+      const s = await C.ouvrirParPasskey(A, prfA);
+      if (s.adresse !== A.adresse || A.adresse === B.adresse) return 'adresse';
+      motsA = await s.lireMots();
+      s.fermer();
+      if (motsA.length !== 12) return 'mots';
+      return await refuse(() => s.lireMots(), ['OuvertureRefusee']);
+    });
+    await essai('rouvrir par les 12 mots : meme adresse, memes mots', async () => {
+      const s = await C.ouvrirParSecours(A, motsA);
+      if (s.adresse !== A.adresse) return 'adresse';
+      if ((await s.lireMots()).join(' ') !== motsA.join(' ')) return 'mots';
+      s.fermer();
+    });
+    await essai('le coffre ferme passe par du texte sans rien perdre', async () => {
+      const relu = JSON.parse(JSON.stringify(A));
+      (await C.ouvrirParPasskey(relu, prfA)).fermer();
+      (await C.ouvrirParSecours(relu, motsA)).fermer();
+    });
+    await essai('mauvaise passkey, mauvais mots : refus', async () => {
+      const autres = await C.motsDepuisSecret(C.hasard(16), 'fr');
+      return (await refuse(() => C.ouvrirParPasskey(A, prfB), ['OuvertureRefusee']))
+        || (await refuse(() => C.ouvrirParSecours(A, autres), ['OuvertureRefusee']))
+        || (await refuse(() => C.ouvrirParPasskey(A, C.hasard(16)), ['OuvertureRefusee']));
+    });
+    await essai('un octet change dans chaque champ chiffre : refus', async () => {
+      const chemins = [['cle', 'ct'], ['cle', 'iv'], ['acces', 0, 'ct'], ['acces', 0, 'iv'], ['acces', 0, 'sel'],
+        ['acces', 1, 'ct'], ['acces', 1, 'iv'], ['acces', 1, 'sel']];
+      for (const ch of chemins) {
+        const x = copie(A);
+        let o = x; for (const k of ch.slice(0, -1)) o = o[k];
+        o[ch[ch.length - 1]] = abimer(o[ch[ch.length - 1]]);
+        const touchePasskey = ch[0] === 'cle' || ch[1] === 0, toucheSecours = ch[0] === 'cle' || ch[1] === 1;
+        if (touchePasskey) { const d = await refuse(() => C.ouvrirParPasskey(x, prfA), ['OuvertureRefusee']); if (d) return ch.join('.') + ' : ' + d; }
+        if (toucheSecours) { const d = await refuse(() => C.ouvrirParSecours(x, motsA), ['OuvertureRefusee']); if (d) return ch.join('.') + ' : ' + d; }
+      }
+      for (const k of ['ct', 'iv']) {
+        const x = copie(A); x.rappel[k] = abimer(x.rappel[k]);
+        const s = await C.ouvrirParPasskey(x, prfA);
+        const d = await refuse(() => s.lireMots(), ['OuvertureRefusee']); s.fermer();
+        if (d) return 'rappel.' + k + ' : ' + d;
+      }
+    });
+    await essai('identifiant, adresse, passkey ou langue changes : refus', async () => {
+      const cas = {
+        id: (x) => { x.id = C.b64u(C.hasard(16)); },
+        adresse: (x) => { x.adresse = B.adresse; },
+        cred: (x) => { x.acces[0].cred = C.b64u(C.hasard(20)); },
+        langue: (x) => { x.acces[1].langue = 'en'; },
+      };
+      for (const nom of Object.keys(cas)) {
+        const x = copie(A); cas[nom](x);
+        const attendus = ['OuvertureRefusee', 'MotsInvalides'];
+        if (nom !== 'langue') { const d = await refuse(() => C.ouvrirParPasskey(x, prfA), attendus); if (d) return nom + ' par passkey : ' + d; }
+        if (nom !== 'cred') { const d = await refuse(() => C.ouvrirParSecours(x, motsA), attendus); if (d) return nom + ' par mots : ' + d; }
+      }
+    });
+    await essai('morceaux echanges entre deux coffres : refus', async () => {
+      const x = copie(A); x.cle = copie(B.cle);
+      const y = copie(A); y.acces[0] = copie(B.acces[0]);
+      const z = copie(A); z.acces[1] = copie(B.acces[1]); z.acces[1].langue = 'fr';
+      const w = copie(A); w.rappel = copie(B.rappel);
+      const s = await C.ouvrirParPasskey(w, prfA);
+      const d = await refuse(() => s.lireMots(), ['OuvertureRefusee']); s.fermer();
+      return (await refuse(() => C.ouvrirParPasskey(x, prfA), ['OuvertureRefusee']))
+        || (await refuse(() => C.ouvrirParPasskey(y, prfB), ['OuvertureRefusee']))
+        || (await refuse(() => C.ouvrirParSecours(z, motsA), ['OuvertureRefusee']))
+        || d;
+    });
+    await essai('forme du coffre : version, champs, types et longueurs inconnus sont refuses', async () => {
+      const cas = [
+        (x) => { x.v = 2; }, (x) => { x.format = 'autre'; }, (x) => { x.extra = 1; }, (x) => { delete x.rappel; },
+        (x) => { x.acces[0].type = 'autre'; }, (x) => { x.acces.push(copie(x.acces[0])); }, (x) => { x.acces.reverse(); },
+        (x) => { x.acces[1].langue = 'xx'; }, (x) => { x.acces[1].langue = 'constructor'; }, (x) => { x.cle.iv = x.cle.iv + 'AA'; },
+        (x) => { x.cle.ct = x.cle.ct.slice(0, -4); }, (x) => { x.id = x.id + '='; }, (x) => { x.adresse = x.adresse + '1'; },
+        (x) => { x.acces[0].cred = ''; }, (x) => { x.cle.extra = 'x'; }, (x) => { x.acces = {}; }, (x) => { x.v = '1'; },
+      ];
+      for (let i = 0; i < cas.length; i++) {
+        const x = copie(A); cas[i](x);
+        const d = await refuse(async () => C.valider(x), ['CoffreInvalide']);
+        if (d) return 'cas ' + (i + 1) + ' : ' + d;
+      }
+      return (await refuse(async () => C.valider(null), ['CoffreInvalide'])) || (await refuse(async () => C.valider([]), ['CoffreInvalide']));
+    });
+    await essai('limite connue : un autre coffre complet s\'ouvre aussi, seule son adresse le distingue', async () => {
+      const s = await C.ouvrirParPasskey(B, prfB);
+      const autre = s.adresse; s.fermer();
+      if (autre === A.adresse) return 'meme adresse';
+      // La signature prouve que la cle va avec l'adresse du coffre presente, pas que ce coffre est celui qu'on attendait.
+    });
+    await essai('le coffre ferme ne contient ni les mots ni le secret', async () => {
+      const texte = JSON.stringify(A).toLowerCase();
+      const secret = await C.secretDepuisMots(motsA, 'fr');
+      if (texte.indexOf(C.hex(secret)) !== -1 || texte.indexOf(C.b64u(secret).toLowerCase()) !== -1) return 'secret present';
+      if (motsA.filter((m) => m.length > 5 && texte.indexOf(C.nu(m)) !== -1).length > 2) return 'mots presents';
+    });
+    await essai('deux creations ne donnent jamais le meme coffre', async () => {
+      const x = await C.creer({ sortiePrf: prfA, cred: C.hasard(20), langue: 'fr' });
+      if (x.id === A.id || x.adresse === A.adresse || x.cle.ct === A.cle.ct) return 'identiques';
+    });
+    return res;
+  }
+  return { lancer };
+})();
+</script>
+
+<script id="page">
+'use strict';
+// L'écran. Il demande la passkey à l'appareil, garde le coffre fermé dans le navigateur, et laisse tout le reste au noyau.
+(() => {
+  const C = Coffre;
+  const $ = (id) => document.getElementById(id);
+  const LANGUE = (navigator.language || 'fr').toLowerCase().indexOf('fr') === 0 ? 'fr' : 'en';
+  const VUES = ['v-accueil', 'v-coffre', 'v-mission', 'v-emporter', 'v-retrouver'];
+  const ETAPES = ['m-intro', 'm-mots', 'm-cartes', 'm-fin'];
+  const SOUS_VUES = ['r-entree', 'r-choix', 'r-mots'];
+  const ATTENTE = 'Ton appareil te demande de confirmer…';
+
+  let coffre = null;                     // le coffre fermé gardé sur cet appareil
+  let etat = { secoursFait: null };
+  let occupe = false;
+  let attente = null;                    // passkey créée dont la clé du coffre n'est pas encore sortie
+  let mission = null;                    // { mots, saisis, erreurs }, seulement pendant la mission
+  let recu = null;                       // coffre fermé reçu, pas encore ouvert
+  let armeEffacer = null;
+  let illisible = null;                  // ce qui est gardé mais illisible, tel que lu au démarrage
+  const journal = [];
+
+  // --- Affichage
+  function dire(id, texte, sorte) {
+    const el = $(id);
+    el.textContent = texte || '';
+    el.className = 'status' + (sorte ? ' ' + sorte : '');
+  }
+  const montrerParmi = (liste, id) => { for (const v of liste) $(v).hidden = v !== id; };
+  function montrer(id) { montrerParmi(VUES, id); window.scrollTo(0, 0); }
+  function etape(id) { montrerParmi(ETAPES, id); $('b-m-annuler').hidden = id === 'm-fin'; }
+  const nomme = (nom) => Object.assign(new Error(''), { name: nom });
+  const detail = (e) => (e && e.name ? e.name : 'Erreur') + (e && e.detail ? ' (' + e.detail + ')' : '')
+    + (e && e.message && !(e instanceof C.Refus) ? ' : ' + String(e.message).slice(0, 90) : '');
+  function expliquer(e) {
+    const n = e && e.name;
+    if (n === 'NotAllowedError') return 'Annulé, ou refusé par l\'appareil. Tu peux réessayer.';
+    if (n === 'SecurityError') return 'Cette adresse n\'est pas autorisée pour les passkeys.';
+    if (n === 'NotSupportedError') return 'Ce navigateur ne sait pas faire cette opération.';
+    if (n === 'InvalidStateError') return 'Une passkey identique existe déjà sur cet appareil.';
+    if (n === 'PrfAbsent') return 'L\'appareil a répondu, mais sans la clé du coffre.';
+    if (n === 'VerificationAbsente') return 'L\'appareil n\'a pas vérifié que c\'est bien toi. Refusé.';
+    if (n === 'OuvertureRefusee') return 'Ce coffre ne s\'ouvre pas avec cette clé.';
+    if (n === 'PreuveEchouee') return 'Le coffre s\'est ouvert, mais sa clé ne correspond pas à son adresse. Refusé.';
+    if (n === 'CoffreInvalide') return 'Ce coffre fermé n\'est pas valide.';
+    if (n === 'MotsInvalides') return 'Ces 12 mots ne sont pas corrects. Vérifie leur ordre et leur orthographe.';
+    if (n === 'CreationEnCours') return 'Une création de coffre est déjà en cours dans un autre onglet.';
+    if (n === 'DejaUnCoffre') return 'Un coffre est déjà gardé sur cet appareil.';
+    if (n === 'StockageRefuse') return 'Ce navigateur refuse de garder le coffre.';
+    return 'Erreur : ' + (n || 'inconnue');
+  }
+  function texteResultat() {
+    return ['RESULTAT COFFRE v1', 'date : ' + new Date().toISOString(), 'navigateur : ' + navigator.userAgent,
+      'coffre sur cet appareil : ' + (coffre ? 'oui, adresse ' + coffre.adresse : 'non'),
+      'secours : ' + (etat.secoursFait ? 'fait' : 'a faire'), '---'].concat(journal).join('\n');
+  }
+  function noter(ligne) { journal.push(ligne); $('resultat').value = texteResultat(); }
+  async function copier(texte, idStatut) {
+    try {
+      await navigator.clipboard.writeText(texte);
+      dire(idStatut, 'Copié.', 'ok');
+    } catch (_) {
+      dire(idStatut, 'La copie automatique est refusée. Sélectionne le texte, puis copie-le.', 'wait');
+    }
+  }
+
+  // --- Ce qui est gardé dans le navigateur : le coffre fermé, et le fait que le secours est fait. Rien d'autre.
+  // L'inscription d'un coffre est atomique : s'il y en a déjà un, elle échoue, même si un autre onglet vient de l'écrire.
+  function base() {
+    return new Promise((ok, non) => {
+      let dem;
+      try { dem = indexedDB.open('coffre', 1); } catch (_) { non(nomme('StockageRefuse')); return; }
+      dem.onupgradeneeded = () => dem.result.createObjectStore('v1');
+      dem.onsuccess = () => ok(dem.result);
+      dem.onerror = dem.onblocked = () => non(nomme('StockageRefuse'));
+    });
+  }
+  async function transaction(mode, action) {
+    const db = await base();
+    try {
+      return await new Promise((ok, non) => {
+        const tx = db.transaction('v1', mode);
+        let resultat, cause = null;
+        const dem = action(tx.objectStore('v1'), (v) => { resultat = v; });
+        if (dem) {
+          dem.onsuccess = () => { resultat = dem.result; };
+          dem.onerror = () => { cause = dem.error; };
+        }
+        tx.oncomplete = () => ok(resultat); // on n'annonce rien avant que l'écriture soit réellement terminée
+        tx.onabort = tx.onerror = () => non(nomme(cause && cause.name === 'ConstraintError' ? 'DejaUnCoffre' : 'StockageRefuse'));
+      });
+    } finally { db.close(); }
+  }
+  const lireGarde = () => transaction('readonly', (m) => m.get('coffre'));
+  const inscrire = (c) => transaction('readwrite', (m) => m.add(c, 'coffre')); // « add » refuse d'écraser, « put » remplacerait
+  const lireEtat = () => transaction('readonly', (m) => m.get('etat'));
+  // Effacer, ou noter que le secours est fait, ne touche au coffre gardé que si c'est bien celui que cette page affiche.
+  // Un autre onglet peut l'avoir remplacé entre-temps : dans ce cas on ne change rien et on répond « autre ».
+  // La lecture et l'écriture se font dans la même transaction, donc rien ne peut se glisser entre les deux.
+  const texteDe = (x) => { try { const s = JSON.stringify(x); return typeof s === 'string' ? s : null; } catch (_) { return null; } };
+  const siMemeCoffre = (reference, suite) => transaction('readwrite', (m, rendre) => {
+    const lu = m.get('coffre');
+    lu.onsuccess = () => {
+      if (lu.result === undefined) { m.delete('etat'); rendre('absent'); return; }
+      if (texteDe(lu.result) !== reference) { rendre('autre'); return; }
+      suite(m); rendre('fait');
+    };
+  });
+  const oublier = (reference) => siMemeCoffre(reference, (m) => { m.delete('etat'); m.delete('coffre'); });
+  // L'état du secours porte le numéro de son coffre : celui d'un autre coffre ne compte jamais.
+  const garderEtat = () => siMemeCoffre(texteDe(coffre), (m) => { m.put({ id: coffre.id, secoursFait: etat.secoursFait }, 'etat'); }).catch(() => 'refus');
+  // Un seul onglet à la fois peut créer un coffre. Sans ce verrou, l'inscription atomique reste la garde.
+  function avecVerrou(fn) {
+    if (!navigator.locks || !navigator.locks.request) return fn();
+    return navigator.locks.request('coffre/v1/creation', { ifAvailable: true }, (verrou) => {
+      if (!verrou) throw nomme('CreationEnCours');
+      return fn();
+    });
+  }
+
+  function afficherCoffre() {
+    $('adresse').textContent = coffre.adresse;
+    dire('etat-secours', etat.secoursFait ? 'Secours : fait.' : 'Secours : à faire. Sans lui, perdre ton appareil, c\'est perdre ton wallet.', etat.secoursFait ? 'ok' : 'wait');
+    $('b-mission').textContent = etat.secoursFait ? 'Refaire ma mission de secours' : 'Faire ma mission de secours';
+    $('b-mission').className = etat.secoursFait ? 'second' : '';
+    desarmerEffacer();
+    dire('s-coffre', '');
+    $('resultat').value = texteResultat();
+    montrer('v-coffre');
+  }
+  function afficherAccueil(texte, sorte) {
+    $('b-creer').hidden = false; $('b-activer').hidden = true; $('b-illisible').hidden = true;
+    attente = null;
+    dire('s-accueil', texte || '', sorte);
+    $('resultat').value = texteResultat();
+    montrer('v-accueil');
+  }
+  // Relit ce qui est gardé, et montre l'écran qui convient.
+  async function demarrer() {
+    let garde;
+    try { garde = await lireGarde(); }
+    catch (e) { coffre = null; noter('[page] stockage indisponible : ' + detail(e)); afficherAccueil('Ce navigateur refuse de garder un coffre. Ouvre cette page hors navigation privée.', 'ko'); return; }
+    if (!garde) { coffre = null; etat = { secoursFait: null }; afficherAccueil(); return; }
+    try {
+      coffre = C.valider(garde);
+      let e = null;
+      try { e = await lireEtat(); } catch (_) {}
+      etat = { secoursFait: e && e.id === coffre.id && typeof e.secoursFait === 'string' ? e.secoursFait : null };
+      afficherCoffre();
+    } catch (e) {
+      coffre = null; illisible = texteDe(garde);
+      noter('[page] coffre garde illisible : ' + detail(e));
+      afficherAccueil('Le coffre gardé sur cet appareil est illisible.', 'ko');
+      $('b-creer').hidden = true; $('b-illisible').hidden = false;
+    }
+  }
+
+  // --- La passkey. La page lui demande, en plus de reconnaître le joueur, la sortie qui sert à fermer le coffre.
+  function nomDuCoffre() {
+    const d = new Date(), p = (n) => String(n).padStart(2, '0');
+    return 'Mon coffre (test) ' + p(d.getDate()) + '/' + p(d.getMonth() + 1) + ' ' + p(d.getHours()) + 'h' + p(d.getMinutes());
+  }
+  function creerPasskey(nom) {
+    return navigator.credentials.create({ publicKey: {
+      challenge: C.hasard(32),
+      rp: { name: 'Mon coffre (test)', id: location.hostname },
+      user: { id: C.hasard(16), name: nom, displayName: nom },
+      pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }],
+      authenticatorSelection: { authenticatorAttachment: 'platform', residentKey: 'required', requireResidentKey: true, userVerification: 'required' },
+      attestation: 'none',
+      timeout: 120000,
+      extensions: { prf: { eval: { first: C.ENTREE_PRF } } },
+    } });
+  }
+  function demanderPasskey(credTexte) {
+    return navigator.credentials.get({ publicKey: {
+      challenge: C.hasard(32),
+      rpId: location.hostname,
+      userVerification: 'required',
+      timeout: 120000,
+      allowCredentials: [{ type: 'public-key', id: C.deB64u(credTexte) }],
+      extensions: { prf: { eval: { first: C.ENTREE_PRF } } },
+    } });
+  }
+  const sortieDe = (reponse) => {
+    const ext = reponse.getClientExtensionResults ? reponse.getClientExtensionResults() : {};
+    const prf = ext && ext.prf ? ext.prf : null;
+    const s = prf && prf.results && prf.results.first ? prf.results.first : null;
+    return { annoncee: prf ? (typeof prf.enabled === 'boolean' ? prf.enabled : null) : false, sortie: s && s.byteLength === 32 ? s : null };
+  };
+  // L'appareil doit avoir vérifié la personne (Face ID, empreinte ou code). On le relit dans sa réponse : oui, non, ou inconnu.
+  function personneVerifiee(reponse) {
+    const r = reponse.response || {};
+    const d = r.authenticatorData || (r.getAuthenticatorData ? r.getAuthenticatorData() : null);
+    if (!d || d.byteLength < 37) return null;
+    return (new Uint8Array(d)[32] & 0x04) !== 0;
+  }
+  const effacerOctets = (o) => { try { new Uint8Array(o.buffer || o).fill(0); } catch (_) {} };
+  async function ouvrirAvecAppareil(c) {
+    const a = await demanderPasskey(c.acces[0].cred);
+    if (personneVerifiee(a) !== true) throw nomme('VerificationAbsente');
+    const p = sortieDe(a);
+    if (!p.sortie) throw nomme('PrfAbsent');
+    try { return await C.ouvrirParPasskey(c, p.sortie); } finally { effacerOctets(p.sortie); }
+  }
+
+  // --- Créer
+  async function creer() {
+    dire('s-accueil', ATTENTE, 'wait');
+    try {
+      await avecVerrou(async () => {
+        if (await lireGarde()) { await demarrer(); return; } // jamais de second coffre en silence
+        const cred = await creerPasskey(nomDuCoffre());
+        const p = sortieDe(cred), verifiee = personneVerifiee(cred);
+        if (verifiee === false) throw nomme('VerificationAbsente');
+        if (p.sortie && verifiee === true) { await finirCreation(cred.rawId, p.sortie, true); return; }
+        if (p.annoncee === false) {
+          noter('[creer] passkey creee, mais l\'appareil refuse de donner une cle de coffre');
+          dire('s-accueil', 'Cet appareil a créé une passkey, mais il ne sait pas s\'en servir pour fermer un coffre. Tu peux la supprimer dans tes mots de passe.', 'ko');
+          return;
+        }
+        if (p.sortie) effacerOctets(p.sortie);
+        attente = C.b64u(cred.rawId);
+        $('b-creer').hidden = true; $('b-activer').hidden = false;
+        dire('s-accueil', 'Passkey créée. Encore un geste pour fermer ton coffre.', 'wait');
+      });
+    } catch (e) { noter('[creer] echec : ' + detail(e)); dire('s-accueil', expliquer(e), 'ko'); }
+  }
+  async function activer() {
+    if (!attente) return;
+    dire('s-accueil', ATTENTE, 'wait');
+    try {
+      await avecVerrou(async () => {
+        const a = await demanderPasskey(attente);
+        if (personneVerifiee(a) !== true) throw nomme('VerificationAbsente');
+        const p = sortieDe(a);
+        if (!p.sortie) throw nomme('PrfAbsent');
+        await finirCreation(a.rawId, p.sortie, false);
+      });
+    } catch (e) { noter('[creer] echec au dernier geste : ' + detail(e)); dire('s-accueil', expliquer(e), 'ko'); }
+  }
+  async function finirCreation(identifiant, sortie, direct) {
+    let c;
+    try { c = await C.creer({ sortiePrf: sortie, cred: identifiant, langue: LANGUE }); } finally { effacerOctets(sortie); }
+    const resume = 'adresse ' + c.adresse + ' | passkey ' + (await C.numeroDePasskey(c.acces[0].cred))
+      + ' | cle du coffre des la creation ' + (direct ? 'oui' : 'non') + ' | mots en ' + c.acces[1].langue;
+    try { await inscrire(c); }
+    catch (e) {
+      if (e.name === 'DejaUnCoffre') {
+        // Un autre onglet a gardé un coffre entre-temps : on ne l'écrase pas, et on le dit.
+        noter('[creer] conflit : un coffre etait deja garde sur cet appareil | coffre non garde : ' + resume);
+        await demarrer();
+        if (coffre) dire('s-coffre', 'Un coffre existait déjà sur cet appareil : c\'est lui qui est affiché. Celui que tu viens de créer n\'a pas été gardé, tu peux supprimer sa passkey dans tes mots de passe.', 'ko');
+        return;
+      }
+      // Le navigateur refuse de garder : le coffre n'existe que dans cette page, et on ne dit pas qu'il est gardé.
+      coffre = c; etat = { secoursFait: null };
+      noter('[creer] cree mais NON GARDE (' + e.name + ') : ' + resume);
+      afficherCoffre();
+      dire('s-coffre', 'Coffre créé, mais ce navigateur refuse de le garder. Emporte-le tout de suite : il disparaîtra en fermant cette page.', 'ko');
+      return;
+    }
+    attente = null; coffre = c; etat = { secoursFait: null };
+    await garderEtat();
+    noter('[creer] ok : ' + resume + ' | garde sur l\'appareil oui');
+    afficherCoffre();
+    dire('s-coffre', 'Coffre créé et fermé. Voici l\'adresse de ton wallet.', 'ok');
+  }
+
+  // --- Ouvrir : la preuve que la clé du coffre est bien celle de l'adresse inscrite dedans
+  async function ouvrir() {
+    dire('s-coffre', ATTENTE, 'wait');
+    try {
+      const s = await ouvrirAvecAppareil(coffre);
+      s.fermer();
+      noter('[ouvrir] ok : adresse ' + s.adresse + ' | signature verifiee');
+      dire('s-coffre', 'Coffre ouvert, puis refermé. Sa clé a signé, et la signature correspond bien à ton adresse.', 'ok');
+    } catch (e) { noter('[ouvrir] echec : ' + detail(e)); dire('s-coffre', expliquer(e), 'ko'); }
+  }
+
+  // --- La mission de secours
+  function quitterMission() {
+    if (mission) { mission.mots.fill(''); mission.saisis.fill(''); mission = null; }
+    $('m-liste').textContent = ''; $('m-jeu').textContent = '';
+  }
+  function ouvrirMission() { quitterMission(); dire('s-mission', ''); etape('m-intro'); montrer('v-mission'); }
+  async function voirMots() {
+    dire('s-mission', ATTENTE, 'wait');
+    try {
+      const s = await ouvrirAvecAppareil(coffre);
+      const mots = await s.lireMots();
+      s.fermer();
+      mission = { mots, saisis: [], erreurs: 0 };
+      montrerMots();
+      dire('s-mission', '');
+    } catch (e) { noter('[mission] echec a l\'ouverture : ' + detail(e)); dire('s-mission', expliquer(e), 'ko'); }
+  }
+  function montrerMots() {
+    if (!mission) return;
+    const liste = $('m-liste');
+    liste.textContent = '';
+    mission.mots.forEach((m, i) => {
+      const li = document.createElement('li'), n = document.createElement('span');
+      n.textContent = String(i + 1);
+      li.appendChild(n); li.appendChild(document.createTextNode(m));
+      liste.appendChild(li);
+    });
+    $('m-jeu').textContent = '';
+    etape('m-mots');
+  }
+  function lancerCartes() {
+    if (!mission) return;
+    mission.saisis = [];
+    $('m-liste').textContent = ''; // les mots ne restent pas affichés pendant le jeu
+    const jeu = $('m-jeu');
+    jeu.textContent = '';
+    for (const m of C.melanger(mission.mots)) {
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'carte'; b.textContent = m;
+      b.addEventListener('click', () => toucher(b, m));
+      jeu.appendChild(b);
+    }
+    $('m-avance').textContent = '0 sur 12';
+    etape('m-cartes');
+  }
+  function toucher(carte, mot) {
+    if (!mission || occupe || carte.disabled) return;
+    if (C.nu(mot) !== C.nu(mission.mots[mission.saisis.length])) {
+      mission.erreurs++;
+      carte.classList.add('fausse');
+      setTimeout(() => carte.classList.remove('fausse'), 600);
+      return;
+    }
+    carte.disabled = true; carte.classList.add('posee');
+    mission.saisis.push(mot);
+    $('m-avance').textContent = mission.saisis.length + ' sur 12';
+    if (mission.saisis.length === 12) finirMission();
+  }
+  async function finirMission() {
+    if (occupe) return;
+    occupe = true;
+    dire('s-mission', 'Vérification de ton secours…', 'wait');
+    try {
+      // Une vraie restauration : le coffre fermé relu là où il est gardé, et les mots dans l'ordre donné par le joueur.
+      const garde = (await lireGarde()) || coffre;
+      const s = await C.ouvrirParSecours(garde, mission.saisis.slice());
+      const meme = s.adresse === coffre.adresse;
+      s.fermer();
+      if (!meme) throw nomme('PreuveEchouee');
+      const erreurs = mission.erreurs;
+      quitterMission();
+      etat = { secoursFait: new Date().toISOString() };
+      const note = await garderEtat();
+      noter('[mission] ok : restauration par les 12 mots reussie, meme adresse | erreurs de cartes ' + erreurs
+        + (note === 'fait' ? '' : ' | etat du secours non garde sur l\'appareil (' + note + ')'));
+      etape('m-fin');
+      dire('s-mission', 'Mission réussie. Tes 12 mots viennent de rouvrir ton coffre.', 'ok');
+    } catch (e) {
+      noter('[mission] echec de la restauration : ' + detail(e));
+      dire('s-mission', 'Le secours n\'a pas pu être vérifié. ' + expliquer(e), 'ko');
+    } finally { occupe = false; }
+  }
+
+  // --- Emporter le coffre fermé : un fichier, ou un texte à coller ailleurs
+  function ouvrirEmporter() {
+    $('texte-coffre').value = JSON.stringify(coffre);
+    dire('s-emporter', '');
+    montrer('v-emporter');
+  }
+  function enregistrerFichier() {
+    const url = URL.createObjectURL(new Blob([JSON.stringify(coffre)], { type: 'application/json' }));
+    const a = document.createElement('a');
+    a.href = url; a.download = 'coffre-ferme-' + coffre.adresse.slice(0, 4) + '.json';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    noter('[emporter] fichier propose');
+    dire('s-emporter', 'Fichier proposé à l\'enregistrement.', 'ok');
+  }
+
+  // --- Retrouver un coffre : sur un autre appareil, ou après avoir tout effacé
+  function ouvrirRetrouver() {
+    recu = null;
+    $('r-texte').value = ''; $('r-fichier').value = ''; $('r-saisie').textContent = '';
+    dire('s-retrouver', '');
+    montrerParmi(SOUS_VUES, 'r-entree');
+    montrer('v-retrouver');
+  }
+  async function lireRecu() {
+    try {
+      let texte = $('r-texte').value.trim();
+      const f = $('r-fichier').files && $('r-fichier').files[0];
+      if (!texte && f) { if (f.size > 20000) throw nomme('CoffreInvalide'); texte = (await f.text()).trim(); }
+      if (!texte) { dire('s-retrouver', 'Colle le texte de ton coffre, ou choisis son fichier.', 'wait'); return; }
+      if (texte.length > 20000) throw nomme('CoffreInvalide');
+      let objet;
+      try { objet = JSON.parse(texte); } catch (_) { throw nomme('CoffreInvalide'); }
+      recu = C.valider(objet);
+      $('r-adresse').textContent = recu.adresse;
+      noter('[retrouver] coffre ferme recu : adresse ' + recu.adresse);
+      dire('s-retrouver', '');
+      montrerParmi(SOUS_VUES, 'r-choix');
+    } catch (e) { noter('[retrouver] coffre refuse : ' + detail(e)); dire('s-retrouver', 'Ce texte n\'est pas un coffre fermé valide.', 'ko'); }
+  }
+  async function retrouverParAppareil() {
+    dire('s-retrouver', ATTENTE, 'wait');
+    try { await finirRetrouver(await ouvrirAvecAppareil(recu), 'la passkey'); }
+    catch (e) { noter('[retrouver] echec par la passkey : ' + detail(e)); dire('s-retrouver', expliquer(e) + ' Si cet appareil n\'a pas ta passkey, utilise tes 12 mots.', 'ko'); }
+  }
+  const marquer = (champ, langue) => { champ.style.borderColor = !champ.value.trim() ? '' : C.estUnMot(champ.value, langue) ? 'var(--ok)' : 'var(--ko)'; };
+  function montrerSaisie() {
+    const zone = $('r-saisie'), langue = recu.acces[1].langue;
+    zone.textContent = '';
+    for (let i = 0; i < 12; i++) {
+      const champ = document.createElement('input');
+      champ.type = 'text'; champ.placeholder = String(i + 1);
+      champ.autocomplete = 'off'; champ.spellcheck = false;
+      champ.setAttribute('autocapitalize', 'none'); champ.setAttribute('autocorrect', 'off'); champ.setAttribute('aria-label', 'Mot ' + (i + 1));
+      let avant = 0;
+      champ.addEventListener('input', () => {
+        const champs = zone.querySelectorAll('input'), morceaux = champ.value.trim().split(/\s+/);
+        if (morceaux.length > 1) { // plusieurs mots collés d'un coup : on les range dans les cases suivantes
+          morceaux.slice(0, 12 - i).forEach((m, k) => { champs[i + k].value = m; marquer(champs[i + k], langue); });
+          avant = champ.value.length;
+          return;
+        }
+        const propositions = C.completer(champ.value, langue, 2);
+        if (champ.value.length > avant && C.nu(champ.value).length >= 4 && propositions.length === 1) {
+          champ.value = propositions[0];
+          if (champs[i + 1]) champs[i + 1].focus();
+        }
+        avant = champ.value.length;
+        marquer(champ, langue);
+      });
+      zone.appendChild(champ);
+    }
+    dire('s-retrouver', '');
+    montrerParmi(SOUS_VUES, 'r-mots');
+  }
+  async function retrouverParMots() {
+    const champs = Array.from($('r-saisie').querySelectorAll('input'));
+    dire('s-retrouver', 'Ouverture…', 'wait');
+    try {
+      const s = await C.ouvrirParSecours(recu, champs.map((c) => c.value));
+      for (const c of champs) c.value = '';
+      await finirRetrouver(s, 'les 12 mots');
+    } catch (e) {
+      noter('[retrouver] echec par les 12 mots : ' + detail(e));
+      dire('s-retrouver', e && e.name === 'OuvertureRefusee' ? 'Ces mots sont bien écrits, mais ils n\'ouvrent pas ce coffre.' : expliquer(e), 'ko');
+    }
+  }
+  // Le coffre reçu s'est ouvert et sa clé a signé. La page ne sait pas si c'est le wallet que le joueur attend :
+  // elle montre l'adresse, et c'est à lui de la reconnaître.
+  async function finirRetrouver(session, moyen) {
+    const adresse = session.adresse;
+    session.fermer();
+    let garde = true;
+    try { await inscrire(recu); }
+    catch (e) {
+      if (e.name === 'DejaUnCoffre') {
+        noter('[retrouver] conflit : un autre coffre est deja garde sur cet appareil, celui-ci n\'est pas garde');
+        dire('s-retrouver', 'Un autre coffre est déjà gardé sur cet appareil. Efface-le d\'abord si tu veux retrouver celui-ci.', 'ko');
+        return;
+      }
+      garde = false;
+    }
+    coffre = recu; recu = null;
+    etat = { secoursFait: moyen === 'les 12 mots' ? new Date().toISOString() : null };
+    if (garde) await garderEtat();
+    $('r-saisie').textContent = ''; $('r-texte').value = '';
+    noter('[retrouver] ok par ' + moyen + ' : adresse ' + adresse + ' | signature verifiee | garde sur l\'appareil ' + (garde ? 'oui' : 'NON'));
+    afficherCoffre();
+    dire('s-coffre', 'Coffre ouvert : sa clé a signé. Vérifie que l\'adresse ci-dessus est bien celle de ton wallet.'
+      + (garde ? '' : ' Attention, ce navigateur refuse de le garder.'), garde ? 'ok' : 'ko');
+  }
+
+  // --- Effacer de cet appareil, en deux touchers
+  // Si le coffre gardé n'est plus celui que cette page affichait, on n'efface rien et on montre celui qui est gardé.
+  async function pasLeMeme() {
+    noter('[effacer] refuse : le coffre garde sur cet appareil n\'est plus celui que la page affichait');
+    await demarrer();
+    dire(coffre ? 's-coffre' : 's-accueil', 'Rien n\'a été effacé : le coffre gardé sur cet appareil a changé dans un autre onglet. Voici ce qui est gardé.', 'ko');
+  }
+  function desarmerEffacer() {
+    if (armeEffacer) clearTimeout(armeEffacer);
+    armeEffacer = null;
+    $('b-effacer').textContent = 'Effacer de cet appareil';
+  }
+  async function effacer() {
+    if (!armeEffacer) {
+      $('b-effacer').textContent = 'Confirmer : effacer ce coffre de cet appareil';
+      dire('s-coffre', (etat.secoursFait ? '' : 'Attention, ta mission de secours n\'est pas faite. ')
+        + 'Ta passkey restera chez ton appareil, mais sans ton coffre fermé elle n\'ouvre rien. Emporte-le avant.', 'ko');
+      armeEffacer = setTimeout(() => { desarmerEffacer(); dire('s-coffre', ''); }, 8000);
+      return;
+    }
+    desarmerEffacer();
+    let fait;
+    try { fait = await oublier(texteDe(coffre)); } catch (e) { noter('[effacer] echec : ' + detail(e)); dire('s-coffre', expliquer(e), 'ko'); return; }
+    if (fait === 'autre') { await pasLeMeme(); return; }
+    coffre = null; etat = { secoursFait: null };
+    noter('[effacer] coffre retire de cet appareil');
+    afficherAccueil('Coffre effacé de cet appareil.', 'ok');
+  }
+
+  // --- Vérifier la page sur cet appareil : les essais du noyau, sans passkey
+  async function verifier() {
+    dire('s-verifier', 'Essais en cours…', 'wait');
+    try {
+      const res = await Verification.lancer(), rates = res.filter((r) => !r.ok);
+      noter('[verification] ' + (res.length - rates.length) + ' essais reussis sur ' + res.length
+        + rates.map((r) => ' | ECHEC : ' + r.nom + ' (' + r.detail + ')').join(''));
+      dire('s-verifier', rates.length ? rates.length + ' essai(s) en échec sur ' + res.length + '. Copie le résultat et envoie-le.'
+        : 'Les ' + res.length + ' essais sont réussis sur cet appareil.', rates.length ? 'ko' : 'ok');
+    } catch (e) { noter('[verification] erreur : ' + detail(e)); dire('s-verifier', 'Les essais n\'ont pas pu tourner : ' + detail(e), 'ko'); }
+  }
+
+  // --- Démarrage
+  function bloquer(texte) {
+    for (const v of VUES) $(v).hidden = true;
+    $('blocage').textContent = texte;
+    $('blocage').hidden = false;
+    noter('[page] bloquee : ' + texte);
+  }
+  const seul = (fn) => async () => { if (occupe) return; occupe = true; try { await fn(); } finally { occupe = false; } };
+  const sur = (id, fn) => $(id).addEventListener('click', fn);
+
+  $('resultat').value = texteResultat();
+  sur('b-verifier', seul(verifier));
+  sur('b-copier-resultat', () => copier(texteResultat(), 's-resultat'));
+  if (window.top !== window.self) { bloquer('Cette page refuse d\'être affichée à l\'intérieur d\'un autre site.'); return; }
+  if (!window.isSecureContext || !window.PublicKeyCredential || !window.crypto || !crypto.subtle || !window.indexedDB) { bloquer('Ce navigateur ne permet pas de créer un coffre ici.'); return; }
+
+  sur('b-creer', seul(creer));
+  sur('b-activer', seul(activer));
+  sur('b-jai', ouvrirRetrouver);
+  sur('b-illisible', seul(async () => {
+    let fait;
+    try { fait = await oublier(illisible); } catch (e) { dire('s-accueil', expliquer(e), 'ko'); return; }
+    if (fait === 'autre') { await pasLeMeme(); return; }
+    noter('[effacer] coffre illisible retire');
+    afficherAccueil('Coffre illisible effacé.', 'ok');
+  }));
+  sur('b-copier-adresse', () => copier(coffre.adresse, 's-coffre'));
+  sur('b-mission', ouvrirMission);
+  sur('b-ouvrir', seul(ouvrir));
+  sur('b-emporter', ouvrirEmporter);
+  sur('b-effacer', seul(effacer));
+  sur('b-m-voir', seul(voirMots));
+  sur('b-m-note', lancerCartes);
+  sur('b-m-revoir', montrerMots);
+  sur('b-m-emporter', ouvrirEmporter);
+  sur('b-m-terminer', afficherCoffre);
+  sur('b-m-annuler', () => { quitterMission(); afficherCoffre(); });
+  sur('b-fichier', enregistrerFichier);
+  sur('b-copier-coffre', () => copier(JSON.stringify(coffre), 's-emporter'));
+  sur('b-e-retour', afficherCoffre);
+  sur('b-r-lire', seul(lireRecu));
+  sur('b-r-appareil', seul(retrouverParAppareil));
+  sur('b-r-mots', montrerSaisie);
+  sur('b-r-ouvrir', seul(retrouverParMots));
+  sur('b-r-retour', seul(async () => { recu = null; $('r-saisie').textContent = ''; await demarrer(); }));
+
+  // Sans signature Ed25519 dans le navigateur, pas de wallet Solana possible ici : on le dit tout de suite.
+  crypto.subtle.generateKey({ name: 'Ed25519' }, false, ['sign', 'verify']).then(demarrer, () => {
+    bloquer('Ce navigateur ne sait pas encore faire les signatures de Solana. Mets-le à jour, puis reviens.');
+  });
+})();
+</script>
+</body>
+</html>

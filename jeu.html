@@ -125,6 +125,7 @@ const cadre = $('coffre'), cadreSans = $('coffre-sans');
 let fenetre = null;    // la fenêtre du coffre ouverte à part
 let pret = false;      // la fenêtre intégrée a répondu
 let enCours = null;    // demande affichée dans la fenêtre intégrée
+let temoin = false;    // le cadre qui a la permission a déjà réussi sur cet appareil
 const demandes = {};   // ce que le jeu a demandé, et ce qu'il a montré au joueur
 
 const b64u = (buf) => {
@@ -185,6 +186,7 @@ function placerFaux(zone, montre) {
 
 function duCadre(m) {
   if (m.type === 'coffre-evenement') {
+    if (m.quoi === 'ouvert' || m.quoi === 'cree') temoin = true;
     if (m.quoi === 'ouvert') dire('e1', 'Essai 1 réussi : coffre ouvert dans le jeu, passkey n° ' + numero(m.passkey) + '.', 'ok');
     else if (m.quoi === 'cree') dire('e2', 'Essai 2 réussi : coffre créé dans le jeu, passkey n° ' + numero(m.passkey) + (m.direct ? '.' : '. Touche « Ouvrir mon coffre » pour finir.'), 'ok');
     else if (m.quoi === 'erreur') {
@@ -227,17 +229,22 @@ function duCadre(m) {
     setTimeout(fermerVoile, 1200);
   }
 }
+// Essai 3 : « réussi » seulement si le navigateur déclare lui-même que le cadre n'a pas la permission.
 function duCadreSans(m) {
   if (m.type !== 'coffre-evenement' || m.quoi !== 'sans-permission') return;
-  const ms = Math.round(Number(m.ms) || 0);
-  if (m.resultat === 'refuse') {
-    const lent = ms > 1500;
-    dire('e3', lent ? 'Essai 3 : refusé, mais lentement. Si une demande Face ID est apparue, dis-le-moi.' : 'Essai 3 réussi : le navigateur a refusé tout de suite.', lent ? 'att' : 'ok');
-    note('essai 3 sans permission : refuse (' + court(m.erreur) + ', ' + ms + ' ms)');
-  } else {
-    dire('e3', 'Essai 3 : ÉCHEC, le navigateur a accepté sans permission.', 'ko');
-    note('essai 3 sans permission : ACCEPTE');
-  }
+  const ms = Math.round(Number(m.ms) || 0), err = court(m.erreur);
+  const suite = temoin ? '' : ' Fais aussi l\'essai 1, pour comparer avec le cadre qui a la permission.';
+  const table = {
+    politique: ['Essai 3 réussi : le navigateur déclare que ce cadre n\'a pas la permission, et il a refusé tout de suite.', 'ok'],
+    immediat: ['Essai 3 : refusé tout de suite. C\'est le résultat attendu, mais ce navigateur ne dit pas pourquoi : probable, pas prouvé.' + suite, 'att'],
+    tardif: ['Essai 3 : indéterminé. Le refus a été lent : si une demande Face ID est apparue, ou si tu as annulé, dis-le-moi.', 'att'],
+    incoherent: ['Essai 3 : refusé alors que le cadre semblait avoir la permission. À regarder.', 'ko'],
+    erreur: ['Essai 3 : erreur (' + err + '). Ce n\'est pas un refus du navigateur, cela ne prouve rien.', 'ko'],
+    accepte: ['Essai 3 : ÉCHEC, le navigateur a accepté sans permission.', 'ko'],
+  };
+  const cas = Object.prototype.hasOwnProperty.call(table, m.resultat) ? table[m.resultat] : ['Essai 3 : résultat inconnu.', 'ko'];
+  dire('e3', cas[0], cas[1]);
+  note('essai 3 sans permission : ' + court(m.resultat) + ' (' + err + ', ' + ms + ' ms), cadre avec permission deja reussi : ' + (temoin ? 'oui' : 'non'));
 }
 function deLaFenetre(m) {
   const d = m.id && demandes[m.id];
@@ -295,7 +302,7 @@ $('b-apart').addEventListener('click', () => {
     dire('e4', 'Essai 4 : le navigateur a bloqué l\'ouverture de la fenêtre.', 'ko');
     note('essai 4 fenetre a part : ouverture bloquee');
   } else {
-    dire('e4', 'La fenêtre du coffre est ouverte. Valide dedans, puis reviens ici. Si rien ne change ici ensuite, dis-le-moi.', 'att');
+    dire('e4', 'La fenêtre du coffre est ouverte. Valide dedans. Avant de la fermer, copie son résultat ou fais-en une capture d\'écran. Si rien ne change ici ensuite, dis-le-moi.', 'att');
   }
 });
 $('b-integre').addEventListener('click', () => acheterDansLeJeu('honnete', VRAI, VRAI));

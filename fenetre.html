@@ -79,6 +79,12 @@
     <textarea id="rapport" readonly></textarea>
     <div class="status" id="s-rapport"></div>
   </section>
+
+  <section id="retour" hidden>
+    <p class="muted">Copie le résultat ci-dessus, ou fais une capture d'écran de cette fenêtre, avant de revenir au jeu.</p>
+    <button id="b-retour">Revenir au jeu</button>
+    <div class="status" id="s-retour"></div>
+  </section>
 </main>
 
 <script>
@@ -131,6 +137,7 @@ let occupe = false;
 let mLocal = null, mBase = null;
 let visibilite = 'non mesurable';
 const journal = [];
+const retirees = new Set(); // demandes que le jeu a retirées pendant une confirmation
 
 // --- Calculs : identiques à la page « Test du coffre »
 async function codeDe(prfOutput) {
@@ -328,10 +335,20 @@ async function ouvrir() {
   } catch (e) {
     const ms = Math.round(performance.now() - t0);
     if (SANS_PERMISSION) {
-      const nom = e && e.name ? e.name : 'Erreur';
-      noter('[sans permission] refuse : ' + nom + ' apres ' + ms + ' ms' + (ms > 1500 ? ' (lent : une demande est peut-etre apparue)' : ''));
-      versLeJeu({ type: 'coffre-evenement', quoi: 'sans-permission', resultat: 'refuse', erreur: nom, ms });
-      dire('s-accueil', 'Refusé par le navigateur, comme prévu.', 'ok');
+      // On ne conclut « refus du navigateur » que si le navigateur déclare lui-même que ce cadre n'a pas la permission.
+      // Une autre erreur, un refus lent ou une annulation ne prouvent rien.
+      const nom = e && e.name ? e.name : 'Erreur', pol = politique('publickey-credentials-get');
+      const verdict = nom !== 'NotAllowedError' ? 'erreur' : ms > 1500 ? 'tardif' : pol === true ? 'incoherent' : pol === false ? 'politique' : 'immediat';
+      const texte = {
+        politique: ['Refusé par le navigateur : ce cadre n\'a pas la permission.', 'ok'],
+        immediat: ['Refusé tout de suite. Ce navigateur ne dit pas pourquoi.', 'wait'],
+        tardif: ['Refusé, mais lentement. Une demande est peut-être apparue, ou tu as annulé.', 'wait'],
+        incoherent: ['Refusé alors que la permission semblait donnée.', 'ko'],
+        erreur: ['Erreur inattendue. Ce n\'est pas un refus du navigateur.', 'ko'],
+      }[verdict];
+      noter('[sans permission] ' + verdict + ' : ' + detail(e) + ' | apres ' + ms + ' ms | permission vue de ce cadre ' + oui(pol));
+      versLeJeu({ type: 'coffre-evenement', quoi: 'sans-permission', resultat: verdict, erreur: nom, ms });
+      dire('s-accueil', texte[0], texte[1]);
       return;
     }
     noter('[ouvrir] echec apres ' + ms + ' ms : ' + detail(e));
@@ -400,13 +417,15 @@ function montrerDemande(d) {
   window.scrollTo(0, 0);
   direZone();
 }
-function finDemande(texte, sorte) {
+function finDemande(texte, sorte, code) {
   demande = null;
   $('demande').hidden = true;
   if (A_PART) {
+    // Cette fenêtre ne se ferme pas toute seule : son résultat doit pouvoir être copié avant.
     $('fin').hidden = false;
-    dire('s-fin', texte + ' Tu peux revenir au jeu.', sorte);
-    setTimeout(() => { try { window.close(); } catch (_) {} }, 1500);
+    $('zone-rapport').hidden = false;
+    $('retour').hidden = false;
+    if (code) direAvecCode('s-fin', texte + ' Code : ', code); else dire('s-fin', texte, sorte);
   } else {
     $('accueil').hidden = false;
     $('zone-rapport').hidden = false;
@@ -420,6 +439,11 @@ async function confirmer() {
   const vu = visibilite;
   try {
     const a = await demanderPasskey(credCourant);
+    if (retirees.delete(d.id)) {
+      noter('[achat] l\'appareil a repondu apres le retrait de la demande par le jeu : ignore, rien n\'est valide');
+      if (demande === d) finDemande('Le jeu a retiré sa demande. Rien n\'a été validé.', 'wait');
+      return;
+    }
     const prf = prfDe(a), numero = await numeroDe(a.rawId);
     if (!prf.sortie) throw Object.assign(new Error('passkey ' + numero + ', prf ' + oui(prf.active)), { name: 'PrfAbsent' });
     const code = await codeDe(prf.sortie);
@@ -430,9 +454,13 @@ async function confirmer() {
     const reponse = { type: 'coffre-reponse', id: d.id, ok: true, approuve: { objet: d.objet, prix: d.prix, pour: d.pour }, passkey: numero, mode: MODE };
     if (A_PART) reponse.marqueurs = { local: mLocal && mLocal.id ? mLocal.id : null, base: mBase && mBase.id ? mBase.id : null };
     versLeJeu(reponse);
-    finDemande('Validé : ' + d.objet + ', ' + d.prix + '.', 'ok');
+    finDemande('Validé : ' + d.objet + ', ' + d.prix + '. Passkey n° ' + numero + '.', 'ok', A_PART ? code : null);
   } catch (e) {
     noter('[achat] echec : ' + detail(e));
+    if (retirees.delete(d.id)) {
+      if (demande === d) finDemande('Le jeu a retiré sa demande. Rien n\'a été validé.', 'wait');
+      return;
+    }
     dire('s-demande', expliquer(e), 'ko');
   }
 }
@@ -457,9 +485,16 @@ window.addEventListener('message', (ev) => {
   }
   if (!INTEGRE || SANS_PERMISSION) return;
   if (m.type === 'jeu-note') noter('[jeu] ' + propre(m.texte, 220));
-  if (m.type === 'jeu-annule' && demande && demande.id === propre(m.id, 40) && !occupe) {
-    noter('[achat] demande retiree par le jeu');
-    finDemande('Demande retirée par le jeu.', 'wait');
+  if (m.type === 'jeu-annule' && demande && demande.id === propre(m.id, 40)) {
+    if (occupe) {
+      // Face ID est en cours : la demande est invalidée, la réponse de l'appareil sera ignorée.
+      retirees.add(demande.id);
+      noter('[achat] demande retiree par le jeu pendant la confirmation');
+      dire('s-demande', 'Le jeu a retiré sa demande. Rien ne sera validé.', 'wait');
+    } else {
+      noter('[achat] demande retiree par le jeu');
+      finDemande('Demande retirée par le jeu.', 'wait');
+    }
   }
   if (m.type === 'jeu-demande') {
     const d = lireDemande(m);
@@ -475,6 +510,10 @@ $('b-ouvrir').addEventListener('click', seul(ouvrir));
 $('b-creer').addEventListener('click', seul(creer));
 $('b-confirmer').addEventListener('click', seul(confirmer));
 $('b-refuser').addEventListener('click', refuserDemande);
+$('b-retour').addEventListener('click', () => {
+  try { window.close(); } catch (_) {}
+  setTimeout(() => dire('s-retour', 'Si cette fenêtre reste ouverte, ferme-la toi-même.', 'wait'), 600);
+});
 $('b-copier').addEventListener('click', async () => {
   const t = $('rapport');
   majRapport();
@@ -502,7 +541,9 @@ $('b-copier').addEventListener('click', async () => {
   }
   if (!(window.isSecureContext && window.PublicKeyCredential)) dire('s-accueil', 'Ce navigateur ne permet pas les passkeys ici.', 'ko');
 
-  if (INTEGRE && ancetres) {
+  if (INTEGRE && window.parent !== window.top) {
+    refuser('cadre imbrique', 'Cette fenêtre est affichée dans un cadre lui-même dans un cadre. Elle refuse de servir.');
+  } else if (INTEGRE && ancetres) {
     if (ancetres.length !== 1) refuser('cadre imbrique', 'Cette fenêtre est affichée dans un cadre lui-même dans un cadre. Elle refuse de servir.');
     else if (SITES_ENREGISTRES.indexOf(ancetres[0]) === -1) refuser('site non enregistre', 'Ce site n\'est pas enregistré auprès du coffre. Cette fenêtre refuse de servir ici.');
   }

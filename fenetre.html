@@ -437,16 +437,21 @@ async function confirmer() {
   if (!d || !site) return;
   dire('s-demande', 'Ton appareil te demande de confirmer…', 'wait');
   const vu = visibilite;
+  // Le jeu peut retirer sa demande à tout instant. On le revérifie après chaque attente,
+  // et une dernière fois juste avant de noter et de répondre : après, plus rien n'attend.
+  const retiree = () => {
+    if (!retirees.delete(d.id)) return false;
+    noter('[achat] demande retiree par le jeu avant la fin : ignore, rien n\'est valide');
+    if (demande === d) finDemande('Le jeu a retiré sa demande. Rien n\'a été validé.', 'wait');
+    return true;
+  };
   try {
     const a = await demanderPasskey(credCourant);
-    if (retirees.delete(d.id)) {
-      noter('[achat] l\'appareil a repondu apres le retrait de la demande par le jeu : ignore, rien n\'est valide');
-      if (demande === d) finDemande('Le jeu a retiré sa demande. Rien n\'a été validé.', 'wait');
-      return;
-    }
+    if (retiree()) return;
     const prf = prfDe(a), numero = await numeroDe(a.rawId);
     if (!prf.sortie) throw Object.assign(new Error('passkey ' + numero + ', prf ' + oui(prf.active)), { name: 'PrfAbsent' });
     const code = await codeDe(prf.sortie);
+    if (retiree()) return;
     const f = drapeaux(a.response && a.response.authenticatorData), c = clientDe(a);
     retenir(a.rawId);
     noter('[achat] valide : ' + d.objet + ' | ' + d.prix + ' | ' + d.pour + ' | passkey ' + numero + ' | code ' + code
@@ -457,10 +462,7 @@ async function confirmer() {
     finDemande('Validé : ' + d.objet + ', ' + d.prix + '. Passkey n° ' + numero + '.', 'ok', A_PART ? code : null);
   } catch (e) {
     noter('[achat] echec : ' + detail(e));
-    if (retirees.delete(d.id)) {
-      if (demande === d) finDemande('Le jeu a retiré sa demande. Rien n\'a été validé.', 'wait');
-      return;
-    }
+    if (retiree()) return;
     dire('s-demande', expliquer(e), 'ko');
   }
 }

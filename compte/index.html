@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src https://coffre-serveur-test.aminvest73.workers.dev; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Mon coffre (essai du compte)</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+  <h1>Mon coffre</h1>
+  <p class="muted">Essai du compte. Les clés créées ici sont jetables et ne protègent rien de réel.</p>
+  <div class="status ko" id="blocage" hidden></div>
+
+  <section class="card" id="v-admission" hidden>
+    <h2>Serveur d'essai</h2>
+    <p>Ce serveur est réservé aux testeurs. Entre le code de testeur qu'on t'a donné.</p>
+    <input id="code-testeur" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Code de testeur">
+    <button id="b-code">Valider le code</button>
+    <div class="status" id="s-admission"></div>
+  </section>
+
+  <section class="card" id="v-accueil" hidden>
+    <h2>Bienvenue</h2>
+    <p>Ton coffre garde la clé de ton wallet. Il ne s'ouvre qu'avec ton appareil.</p>
+    <button id="b-creer">Créer mon coffre</button>
+    <button id="b-connecter" class="second">J'ai déjà un coffre : me connecter</button>
+    <div class="status" id="s-accueil"></div>
+  </section>
+
+  <section class="card" id="v-coffre" hidden>
+    <h2>Ton coffre</h2>
+    <p class="muted">Adresse de ton wallet</p>
+    <p class="adresse" id="adresse"></p>
+    <div class="status" id="garde"></div>
+    <button id="b-renvoyer" hidden>Réessayer de le confier au serveur</button>
+    <button id="b-reconnecter">Me connecter</button>
+    <button id="b-ouvrir" class="second">Ouvrir mon coffre sans le serveur</button>
+    <button id="b-oublier" class="second">Oublier ce coffre sur cet appareil</button>
+    <div class="status" id="s-coffre"></div>
+  </section>
+
+  <section class="card" id="v-resultat">
+    <h2>Pour l'essai</h2>
+    <button id="b-copier" class="second">Copier le résultat</button>
+    <textarea id="resultat" readonly></textarea>
+    <div class="status" id="s-resultat"></div>
+  </section>
+</main>
+<script type="module" src="page.mjs"></script>
+</body>
+</html>

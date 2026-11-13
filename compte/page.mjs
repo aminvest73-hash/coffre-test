@@ -196,7 +196,8 @@ function envoyerAuJeu(d, adresse, preuve) {
     return;
   }
   $('b-jeu').hidden = true;
-  dire('s-jeu', 'Connecté à ' + d.nom + '. Tu peux revenir au jeu.', 'ok');
+  // La fenêtre a envoyé la preuve, rien de plus : c'est le jeu qui la vérifie et qui annonce la connexion.
+  dire('s-jeu', 'Envoyé à ' + d.nom + '. Reviens au jeu pour terminer.', 'ok');
   setTimeout(() => { try { window.close(); } catch (_) { /* le joueur fermera */ } }, 1500);
 }
 async function entrerDansLeJeu() {

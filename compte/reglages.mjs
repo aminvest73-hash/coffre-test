@@ -1,6 +1,6 @@
 // Ce que la page sait d'elle-même. Rien ici ne vient du serveur. Fichier écrit par assembler.mjs.
 export const REGLAGES = {
-  version: 'en ligne 3',
+  version: 'en ligne 4',
   api: "https://coffre-serveur-test.aminvest73.workers.dev",
   rpId: "aminvest73-hash.github.io",
   environnement: 'essai',

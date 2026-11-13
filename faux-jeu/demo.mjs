@@ -27,16 +27,27 @@ const serveurDuJeu = connexionServeurJeu({ contrat: K, service: new URL(DEMO.cof
 // Le défi doit être prêt AVANT le clic : la fenêtre du coffre s'ouvre dans le geste du joueur, sans rien attendre,
 // sinon le navigateur la bloque. Le jeu le demande donc à son serveur à l'avance, et le renouvelle avant qu'il expire.
 let prochaine = null;
+const FRAIS = 240000;   // millisecondes : passé ce délai, le défi préparé est trop près de sa fin (il vit 300 secondes)
 async function preparer() {
   // Une tentative : dans un vrai jeu, l'identifiant de la session d'avant connexion, donné par le serveur du jeu.
   const tentative = K.b64u(crypto.getRandomValues(new Uint8Array(24)));
   const { defi } = await serveurDuJeu.nouveauDefi(tentative);
-  prochaine = { tentative, defi };
+  prochaine = { tentative, defi, pret: Date.now() };
 }
+const perime = () => !prochaine || Date.now() - prochaine.pret > FRAIS;
+// Un onglet laissé en arrière-plan dort, et son minuteur avec lui : au retour, le défi préparé peut être trop vieux.
+// On en prépare donc un neuf dès que la page redevient visible, pour qu'il soit prêt avant le clic.
+function auRetour() { if (!enCours && document.visibilityState === 'visible' && perime()) preparer().catch(() => {}); }
 
 async function seConnecter() {
   if (enCours) return;
-  if (!prochaine) { dire('Un instant, puis réessaie.', 'wait'); return; }
+  // Jamais de fenêtre ouverte avec un défi trop vieux : on en redemande un, et le joueur retouche le bouton.
+  if (perime()) {
+    prochaine = null;
+    dire('Un instant…', 'wait');
+    preparer().then(() => dire('C\'est prêt. Touche de nouveau le bouton.'), () => dire('Le jeu ne répond pas. Réessaie dans un instant.', 'ko'));
+    return;
+  }
   enCours = true;
   const { tentative, defi } = prochaine;
   prochaine = null;
@@ -65,4 +76,6 @@ $('b-connexion').addEventListener('click', seConnecter);
 $('b-copier').addEventListener('click', copier);
 $('resultat').value = texteResultat();
 preparer();
-setInterval(() => { if (!enCours) preparer(); }, 240000);
+setInterval(() => { if (!enCours) preparer(); }, FRAIS);
+document.addEventListener('visibilitychange', auRetour);
+window.addEventListener('pageshow', auRetour);

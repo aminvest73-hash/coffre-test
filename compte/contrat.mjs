@@ -114,6 +114,8 @@ export function lireCanonique(octets, tailleMax) {
 
 export const PROTOCOLE_GESTION = 'coffre-gestion/1';
 export const PROTOCOLE_PREUVE = 'coffre-preuve/1';
+export const PROTOCOLE_CONNEXION = 'coffre-connexion/1';
+export const DUREE_CONNEXION = 300;    // secondes : ce que vaut une preuve de connexion à un jeu
 export const TAILLE_CONTENU = 4096;   // contenu d'un message signé
 export const TAILLE_ETAT = 32768;     // état autorisé, sous sa forme canonique
 const ACTIONS = ['creer', 'ajouter-acces', 'attester-secours'];
@@ -262,6 +264,29 @@ export function validerPreuve(p) {
   return p;
 }
 
+// La preuve de connexion à un jeu : « ce wallet se connecte à ce jeu, pour ce défi, à cette heure ».
+// `jeu` est l'origine complète du jeu, comme `service` est celle de la page du coffre. `defi` est choisi par le jeu.
+const DEFI_JEU = /^[A-Za-z0-9_-]{16,128}$/;
+function origineJeu(v) {
+  if (typeof v !== 'string' || v.length > 255) refuser('SchemaRefuse', 'jeu');
+  let u;
+  try { u = new URL(v); } catch (_) { return refuser('SchemaRefuse', 'jeu'); }
+  const local = u.protocol === 'http:' && u.hostname === 'localhost';
+  if (u.origin !== v || (u.protocol !== 'https:' && !local)) refuser('SchemaRefuse', 'jeu');
+}
+export function validerConnexion(c) {
+  objetExact(c, ['protocole', 'service', 'jeu', 'adresse', 'defi', 'emis', 'expire'], 'connexion');
+  if (c.protocole !== PROTOCOLE_CONNEXION) refuser('SchemaRefuse', 'protocole');
+  service(c.service);
+  origineJeu(c.jeu);
+  adresse(c.adresse, 'adresse');
+  if (typeof c.defi !== 'string' || !DEFI_JEU.test(c.defi)) refuser('SchemaRefuse', 'defi');
+  entier(c.emis, 1, 99999999999, 'emis');
+  entier(c.expire, 1, 99999999999, 'expire');
+  if (c.expire <= c.emis || c.expire - c.emis > DUREE_CONNEXION) refuser('SchemaRefuse', 'duree');
+  return c;
+}
+
 // ---------- Le message signé : message hors chaîne de Solana, version 1, un seul signataire.
 // 16 octets de domaine (0xFF puis « solana offchain »), version 01, nombre de signataires 01,
 // clé publique du signataire, puis le contenu. Le premier octet interdit qu'il soit une transaction.
@@ -332,6 +357,32 @@ export async function verifierPreuve(preuve, coffre) {
   if (p.coffre !== coffre.id || p.adresse !== coffre.adresse || base58(signataire) !== p.adresse) refuser('PreuveRefusee', 'contexte');
   if (!(await verifierSignature(signataire, preuve.signature, preuve.message))) refuser('PreuveRefusee', 'signature');
   return true;
+}
+
+// ---------- Se connecter à un jeu. La clé du wallet signe elle-même ; aucun serveur ne se porte garant.
+// La preuve ne vaut que pour ce jeu (son origine est dans ce qui est signé), pour ce défi, et quelques minutes.
+// Elle ne peut pas être une transaction : c'est un message hors chaîne, comme les autres.
+export function contenuConnexion(champs) {
+  return te.encode(canoniser(validerConnexion(Object.assign({ protocole: PROTOCOLE_CONNEXION }, champs))));
+}
+export async function faireConnexionJeu(clePrivee, { service: s, jeu, adresse: a, defi, maintenant }) {
+  const message = messageHorsChaine(deBase58(a, 32), contenuConnexion({ service: s, jeu, adresse: a, defi, emis: maintenant, expire: maintenant + DUREE_CONNEXION }));
+  return { message, signature: await signer(clePrivee, message) };
+}
+// Ce que le serveur d'un jeu vérifie avant de connecter un joueur. `attendu` vient du jeu lui-même, jamais de ce
+// qu'il a reçu : { service (l'adresse de la page du coffre), jeu (sa propre origine), defi (celui qu'il a émis pour
+// cette tentative, et qu'il ne doit accepter qu'une fois), maintenant }. Rend l'adresse du wallet : c'est
+// l'identité du joueur. L'heure signée est celle de l'appareil du joueur : c'est le défi qui empêche le rejeu.
+export async function verifierConnexionJeu(preuve, attendu) {
+  const { signataire, contenu } = lireMessageHorsChaine(preuve.message, TAILLE_CONTENU);
+  const c = validerConnexion(lireCanonique(contenu, TAILLE_CONTENU));
+  if (typeof attendu.service !== 'string' || c.service !== attendu.service) refuser('ConnexionRefusee', 'service');
+  if (typeof attendu.jeu !== 'string' || c.jeu !== attendu.jeu) refuser('ConnexionRefusee', 'jeu');
+  if (typeof attendu.defi !== 'string' || c.defi !== attendu.defi) refuser('ConnexionRefusee', 'defi');
+  if (base58(signataire) !== c.adresse) refuser('ConnexionRefusee', 'signataire');
+  if (!Number.isSafeInteger(attendu.maintenant) || c.expire <= attendu.maintenant - TOLERANCE_HORLOGE || c.emis > attendu.maintenant + TOLERANCE_HORLOGE) refuser('ConnexionRefusee', 'heure');
+  if (!(await verifierSignature(signataire, preuve.signature, preuve.message))) refuser('ConnexionRefusee', 'signature');
+  return { adresse: c.adresse, emis: c.emis, expire: c.expire };
 }
 
 // ---------- Contrôler une création (le serveur). Tout ce qui ne dépend ni de l'heure ni de la base.

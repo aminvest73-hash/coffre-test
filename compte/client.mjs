@@ -68,6 +68,24 @@ export function client({ api, appareil, stock, reglages, noter }) {
   const dire = noter || (() => {});
   const extensionPrf = { prf: { eval: { first: N.ENTREE_PRF } } };
   const maintenant = () => (reglages.horloge ? reglages.horloge() : Math.floor(Date.now() / 1000));
+  // Quand le service demande au joueur de dire qui il est : la preuve d'identité reçue après le code. Elle ne sert
+  // qu'à réserver une inscription, une seule, et ne quitte pas la mémoire de la page. Elle y reste jusqu'à ce que
+  // le coffre soit rangé sur l'appareil : si la réponse à la réservation se perd, la redemander rend la même.
+  const parEmail = reglages.identite === 'email';
+  let preuveIdentite = null;
+  // Une réservation obtenue et pas encore utilisée : si le joueur annule son geste puis recommence, elle ressert
+  // tant qu'il lui reste au moins une minute. Il n'a donc pas à redemander un code pour un Face ID annulé.
+  let reservation = null;
+  async function demanderCode(email) { await api('/identite/code', { email }); }
+  async function validerCode(email, code) {
+    const r = await api('/identite/verifier', { email, code });
+    if (!r || typeof r.preuve !== 'string') refuser('CodeRefuse');
+    preuveIdentite = r.preuve;
+    // Une identité vient d'être confirmée : une réservation gardée d'une confirmation précédente ne lui appartient
+    // pas. Elle est oubliée, pour qu'un coffre ne soit jamais lié à une autre adresse que la dernière confirmée.
+    reservation = null;
+    return { coffre: r.coffre === true };
+  }
 
   async function demander(defi, cred, geste) {
     const a = await appareil.demander({ challenge: defi, rpId: reglages.rpId, userVerification: 'required', timeout: 120000,
@@ -80,11 +98,21 @@ export function client({ api, appareil, stock, reglages, noter }) {
   }
 
   // ---------- Créer : réserver, créer la passkey, fabriquer le coffre, le ranger sur l'appareil, l'envoyer.
-  async function creer(nom) {
+  // `options.connexion`, s'il est donné : { jeu, defi }. La preuve de connexion au jeu est alors signée dans le
+  // même geste, et rendue seulement si le coffre est bien gardé par le serveur.
+  async function creer(nom, options) {
+    const connexion = options && options.connexion;
     if (await stock.lire()) refuser('DejaUnCoffre');
-    const r = await api('/reserver', {});
-    // Le serveur ne choisit ni le service, ni l'environnement, ni le projet : la page les connaît déjà.
-    if (r.service !== reglages.origine || r.environnement !== reglages.environnement || r.projet !== reglages.projet) refuser('ContexteRefuse', 'reservation');
+    let r = reservation;
+    if (r && !(Number.isSafeInteger(r.expire) && r.expire >= maintenant() + 60)) r = reservation = null;
+    if (!r) {
+      if (parEmail && !preuveIdentite) refuser('IdentiteRequise');
+      try { r = await api('/reserver', parEmail ? { preuve: preuveIdentite } : {}); }
+      catch (e) { if (e && (e.name === 'IdentiteRefusee' || e.name === 'DejaUnCoffre')) preuveIdentite = null; throw e; }
+      // Le serveur ne choisit ni le service, ni l'environnement, ni le projet : la page les connaît déjà.
+      if (r.service !== reglages.origine || r.environnement !== reglages.environnement || r.projet !== reglages.projet) refuser('ContexteRefuse', 'reservation');
+      reservation = r;
+    }
     // L'expiration annoncée sera signée par la clé du wallet : ni passée, ni trop lointaine, avant tout geste.
     K.controlerDuree(r.expire, maintenant());
     const defi = K.deB64u(r.defi, 32), utilisateur = K.deB64u(r.compte, 16);
@@ -110,15 +138,20 @@ export function client({ api, appareil, stock, reglages, noter }) {
       K.controlerDuree(r.expire, maintenant());   // une seconde fois, juste avant de signer : le geste a pris du temps
       fait = await N.creer({ sortiePrf: sortie, passkey: { cred: octets(c.rawId), alg, cle }, langue: reglages.langue, contexte: {
         service: reglages.origine, environnement: reglages.environnement, projet: reglages.projet,
-        compte: r.compte, inscription: r.inscription, defi: r.defi, expire: r.expire } });
+        compte: r.compte, inscription: r.inscription, defi: r.defi, expire: r.expire },
+        connexion: connexion ? { jeu: connexion.jeu, defi: connexion.defi, maintenant: maintenant() } : undefined });
     } finally { sortie.fill(0); }
     const envoi = { inscription: r.inscription, passkey: pourCreation(c), etat: new TextDecoder().decode(fait.etat),
       message: K.b64u(fait.message), signature: K.b64u(fait.signature) };
     const fiche = { compte: r.compte, cred, coffre: fait.coffre, etat: envoi.etat, message: envoi.message, signature: envoi.signature,
       version: 1, empreinte: fait.empreinte, garde: false, envoi };
     await stock.inscrire(fiche);   // d'abord sur l'appareil : si l'envoi échoue, le coffre existe et la page le dit
+    reservation = null; preuveIdentite = null;   // elles ont servi
     dire('[creer] coffre fabrique et range sur l\'appareil | adresse ' + fait.coffre.adresse + ' | cle du coffre des la creation ' + (direct ? 'oui' : 'non'));
-    return envoyer(fiche);
+    const resultat = await envoyer(fiche);
+    // Un coffre qui n'existe que sur cet appareil n'entre pas dans un jeu : la preuve n'est rendue que s'il est gardé.
+    if (fait.preuve && resultat.garde) resultat.preuve = fait.preuve;
+    return resultat;
   }
 
   // L'envoi se rejoue tel quel : la même demande rend la même réponse, que l'accusé précédent soit arrivé ou non.
@@ -190,7 +223,25 @@ export function client({ api, appareil, stock, reglages, noter }) {
     try { return await N.ouvrirParPasskey(fiche.coffre, fiche.cred, sortie); } finally { sortie.fill(0); }
   }
 
-  return { creer, renvoyer, connecter, ouvrirLocal, accepter };
+  // ---------- Entrer dans un jeu avec un coffre existant : l'ouvrir, puis signer la preuve de connexion.
+  // Le serveur d'abord (il rend la dernière version du coffre) ; s'il ne répond pas, la copie de l'appareil suffit.
+  async function prouver({ jeu, defi }) {
+    const fiche = await stock.lire();
+    if (fiche && !fiche.garde) refuser('NonGarde');
+    let session;
+    try { session = await connecter(); }
+    catch (e) {
+      if (!fiche || !['ReseauCoupe', 'Indisponible'].includes(e && e.name)) throw e;
+      dire('[jeu] serveur injoignable : ouverture de la copie de cet appareil');
+      session = await ouvrirLocal();
+    }
+    try {
+      const preuve = await session.prouverConnexion({ service: reglages.origine, jeu, defi, maintenant: maintenant() });
+      return { adresse: session.adresse, preuve };
+    } finally { session.fermer(); }
+  }
+
+  return { creer, renvoyer, connecter, ouvrirLocal, accepter, prouver, demanderCode, validerCode };
 }
 
 // Un stockage en mémoire, pour les essais. La page a le sien, sur IndexedDB, avec les mêmes règles :

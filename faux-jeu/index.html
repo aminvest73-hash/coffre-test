@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Faux jeu (démonstration)</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+  <h1>Faux jeu</h1>
+  <p class="muted">Ceci n'est pas un vrai jeu. Il sert à essayer le bouton « Se connecter », avec des clés jetables.</p>
+
+  <section class="card">
+    <h2 id="titre">Bienvenue</h2>
+    <p id="etat">Pour jouer, connecte-toi avec ton coffre.</p>
+    <button id="b-connexion">Se connecter</button>
+    <div class="status" id="s-jeu"></div>
+  </section>
+
+  <section class="card">
+    <h2>Pour l'essai</h2>
+    <button id="b-copier" class="second">Copier le résultat</button>
+    <textarea id="resultat" readonly></textarea>
+    <div class="status" id="s-resultat"></div>
+  </section>
+</main>
+<script type="module" src="demo.mjs"></script>
+</body>
+</html>

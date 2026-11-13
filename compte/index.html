@@ -15,6 +15,14 @@
   <p class="muted">Essai du compte. Les clés créées ici sont jetables et ne protègent rien de réel.</p>
   <div class="status ko" id="blocage" hidden></div>
 
+  <section class="card" id="v-jeu" hidden>
+    <h2>Connexion à un jeu</h2>
+    <p><strong id="jeu-nom"></strong> te demande de te connecter avec ton coffre.</p>
+    <p class="muted" id="jeu-site"></p>
+    <button id="b-jeu" hidden>Me connecter à ce jeu</button>
+    <div class="status" id="s-jeu"></div>
+  </section>
+
   <section class="card" id="v-admission" hidden>
     <h2>Serveur d'essai</h2>
     <p>Ce serveur est réservé aux testeurs. Entre le code de testeur qu'on t'a donné.</p>
@@ -26,6 +34,15 @@
   <section class="card" id="v-accueil" hidden>
     <h2>Bienvenue</h2>
     <p>Ton coffre garde la clé de ton wallet. Il ne s'ouvre qu'avec ton appareil.</p>
+    <div id="z-identite" hidden>
+      <p>Pour commencer, dis-nous qui tu es : ton adresse e-mail, puis le code que nous t'envoyons.</p>
+      <input id="email" type="text" inputmode="email" autocomplete="email" autocapitalize="off" spellcheck="false" aria-label="Adresse e-mail" placeholder="Ton adresse e-mail">
+      <button id="b-envoyer-code">Recevoir mon code</button>
+      <div id="z-code" hidden>
+        <input id="code-email" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" aria-label="Code à 6 chiffres" placeholder="Code à 6 chiffres">
+        <button id="b-valider-code">Valider mon code</button>
+      </div>
+    </div>
     <button id="b-creer">Créer mon coffre</button>
     <button id="b-connecter" class="second">J'ai déjà un coffre : me connecter</button>
     <div class="status" id="s-accueil"></div>

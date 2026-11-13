@@ -118,6 +118,11 @@ async function ouvrir(c, kekAcces, acces, role, plus) {
       secret.fill(0);
       return mots;
     },
+    // Prouver à un jeu que ce wallet s'y connecte. La clé ne sort pas : elle signe ici.
+    async prouverConnexion({ service, jeu, defi, maintenant }) {
+      if (!cle) refuser('OuvertureRefusee', 'coffre referme');
+      return K.faireConnexionJeu(cle, { service, jeu, adresse: c.adresse, defi, maintenant });
+    },
     fermer() { dek = null; cle = null; },
   };
 }
@@ -142,7 +147,9 @@ export async function ouvrirParSecours(objet, mots) {
 // `contexte` : ce que le serveur a fixé à la réservation et ce que la page sait d'elle-même :
 // { service, environnement, projet, compte, inscription, defi, expire }.
 // Rend le coffre fermé, l'état autorisé (octets canoniques), et le message de création signé par la clé du wallet.
-export async function creer({ sortiePrf, passkey, langue, contexte }) {
+// `connexion`, s'il est donné : { jeu, defi, maintenant }. La clé signe alors aussi la preuve de connexion à ce jeu,
+// pour qu'un nouveau joueur crée son coffre et entre dans le jeu d'un seul geste.
+export async function creer({ sortiePrf, passkey, langue, contexte, connexion }) {
   if (!langueConnue(langue)) refuser('CoffreInvalide', 'langue');
   const prf = new Uint8Array(sortiePrf).slice();
   if (prf.length !== 32) refuser('CoffreInvalide', 'sortie de la passkey');
@@ -182,5 +189,8 @@ export async function creer({ sortiePrf, passkey, langue, contexte }) {
   }));
   const message = K.messageHorsChaine(publique, contenu);
   const signature = await K.signer(paire.privateKey, message);
-  return { coffre, etat, empreinte, message, signature };
+  const preuve = connexion
+    ? await K.faireConnexionJeu(paire.privateKey, { service: contexte.service, jeu: connexion.jeu, adresse: coffre.adresse, defi: connexion.defi, maintenant: connexion.maintenant })
+    : null;
+  return { coffre, etat, empreinte, message, signature, preuve };
 }

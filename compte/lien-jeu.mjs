@@ -4,6 +4,8 @@
 // Règles :
 //   - seuls les jeux enregistrés (`jeux` : origine -> nom) sont écoutés, et seulement la fenêtre qui nous a ouverts ;
 //   - une seule demande par fenêtre ; une demande retirée par le jeu ne reçoit plus de réponse ;
+//   - le jeu peut dire que le joueur a déjà son coffre : le wallet lié à son compte (`adresse`), ou seulement
+//     « il en a un » (`existant`). Dans les deux cas la page ne propose pas d'en créer un ;
 //   - une demande ne vit que cinq minutes, même si le jeu oublie de la retirer : après, rien ne part et le jeu
 //     reçoit un refus ;
 //   - la réponse n'est envoyée qu'à l'origine qui a fait la demande, jamais à « tout le monde ».
@@ -39,7 +41,8 @@ export function lienJeu({ fenetre, ouvreur, jeux, surDemande, surRetrait, noter,
       if (demande) return;   // une seule demande par fenêtre
       if (typeof m.id !== 'string' || !ID.test(m.id) || typeof m.defi !== 'string' || !DEFI.test(m.defi)) return;
       if (m.adresse !== undefined && (typeof m.adresse !== 'string' || !ADRESSE.test(m.adresse))) return;
-      demande = { jeu: ev.origin, nom: String(jeux[ev.origin]), id: m.id, defi: m.defi, attendue: m.adresse || null, retiree: false, expiree: false, recue: maintenant() };
+      if (m.existant !== undefined && m.existant !== true) return;
+      demande = { jeu: ev.origin, nom: String(jeux[ev.origin]), id: m.id, defi: m.defi, attendue: m.adresse || null, existant: m.existant === true, retiree: false, expiree: false, recue: maintenant() };
       setTimeout(expirer, limite);
       dire('[jeu] demande de connexion de ' + ev.origin);
       if (surDemande) surDemande(demande);
@@ -51,7 +54,8 @@ export function lienJeu({ fenetre, ouvreur, jeux, surDemande, surRetrait, noter,
   });
 
   // Dire au jeu que la fenêtre est prête. Chaque envoi vise une origine enregistrée : un autre site ne reçoit rien.
-  function annoncer() { for (const o of origines) { try { ouvreur.postMessage({ type: 'coffre-pret', v: 1 }, o); } catch (_) { /* fenêtre fermée */ } } }
+  // v : 2 depuis que la page comprend `existant`.
+  function annoncer() { for (const o of origines) { try { ouvreur.postMessage({ type: 'coffre-pret', v: 2 }, o); } catch (_) { /* fenêtre fermée */ } } }
 
   return {
     annoncer,

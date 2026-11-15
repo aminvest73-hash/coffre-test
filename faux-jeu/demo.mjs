@@ -20,6 +20,7 @@ const MESSAGES = {
   AutreWallet: 'Ce n\'est pas le wallet lié à ce compte de jeu. Tu n\'es pas connecté.',
   ConnexionRefusee: 'La connexion n\'a pas abouti dans la fenêtre du coffre.',
   DelaiDepasse: 'Trop de temps a passé. Réessaie.',
+  CoffreTropAncien: 'La page du coffre est trop ancienne pour cette demande.',
 };
 let enCours = false, adresseLiee = null;
 const serveurDuJeu = connexionServeurJeu({ contrat: K, service: new URL(DEMO.coffre).origin, jeu: location.origin, stockage: stockageEnMemoire() });
@@ -39,7 +40,9 @@ const perime = () => !prochaine || Date.now() - prochaine.pret > FRAIS;
 // On en prépare donc un neuf dès que la page redevient visible, pour qu'il soit prêt avant le clic.
 function auRetour() { if (!enCours && document.visibilityState === 'visible' && perime()) preparer().catch(() => {}); }
 
-async function seConnecter() {
+// `existant` : le joueur a touché « J'ai déjà mon coffre ». Le jeu ne connaît pas encore son wallet ; la fenêtre
+// ne lui proposera pas d'en créer un. Une fois le wallet connu du jeu, c'est lui qui est annoncé à la fenêtre.
+async function seConnecter(existant) {
   if (enCours) return;
   // Jamais de fenêtre ouverte avec un défi trop vieux : on en redemande un, et le joueur retouche le bouton.
   if (perime()) {
@@ -53,18 +56,19 @@ async function seConnecter() {
   prochaine = null;
   dire('La fenêtre du coffre s\'ouvre…', 'wait');
   try {
-    const recu = await connexionCoffre({ coffre: DEMO.coffre, defi, adresse: adresseLiee || undefined }).resultat;
+    const recu = await connexionCoffre({ coffre: DEMO.coffre, defi, adresse: adresseLiee || undefined, existant: existant && !adresseLiee }).resultat;
     // Ce que fait le serveur du jeu : tout vérifier avec ce qu'il sait lui-même, puis consommer son défi.
     // Le wallet attendu vient de ce que le jeu a gardé, pas de ce que la fenêtre annonce.
     const v = await serveurDuJeu.conclure(tentative, recu, { walletAttendu: adresseLiee });
-    noter('[connexion] ok : wallet ' + v.adresse + ' | preuve verifiee par le jeu' + (adresseLiee ? (adresseLiee === v.adresse ? ' | meme wallet que la fois precedente' : ' | AUTRE WALLET que la fois precedente') : ''));
+    noter('[connexion] ok : wallet ' + v.adresse + ' | preuve verifiee par le jeu' + (existant && !adresseLiee ? ' | demande sans creation' : '') + (adresseLiee ? (adresseLiee === v.adresse ? ' | meme wallet que la fois precedente' : ' | AUTRE WALLET que la fois precedente') : ''));
     adresseLiee = v.adresse;
     $('titre').textContent = 'Tu es connecté';
     $('etat').textContent = 'Ton wallet : ' + v.adresse.slice(0, 4) + '…' + v.adresse.slice(-4);
     $('b-connexion').textContent = 'Me reconnecter';
+    $('b-existant').hidden = true;
     dire('Connexion vérifiée par le jeu.', 'ok');
   } catch (e) {
-    noter('[connexion] echec : ' + (e && e.name) + (e && e.detail ? ' (' + e.detail + ')' : ''));
+    noter('[connexion] echec : ' + (e && e.name) + (e && e.detail ? ' (' + e.detail + ')' : '') + (existant && !adresseLiee ? ' | demande sans creation' : ''));
     dire(MESSAGES[e && e.name] || 'La preuve reçue n\'est pas valable. Tu n\'es pas connecté.', 'ko');
   } finally { enCours = false; preparer(); }
 }
@@ -72,7 +76,8 @@ async function copier() {
   try { await navigator.clipboard.writeText(texteResultat()); $('s-resultat').textContent = 'Copié.'; }
   catch (_) { $('resultat').select(); $('s-resultat').textContent = 'Sélectionné : copie-le à la main.'; }
 }
-$('b-connexion').addEventListener('click', seConnecter);
+$('b-connexion').addEventListener('click', () => seConnecter(false));
+$('b-existant').addEventListener('click', () => seConnecter(true));
 $('b-copier').addEventListener('click', copier);
 $('resultat').value = texteResultat();
 preparer();

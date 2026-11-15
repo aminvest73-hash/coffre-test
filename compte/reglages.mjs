@@ -1,10 +1,10 @@
 // Ce que la page sait d'elle-même. Rien ici ne vient du serveur. Fichier écrit par assembler.mjs.
 export const REGLAGES = {
-  version: 'en ligne 4',
+  version: 'en ligne 5',
   api: "https://coffre-serveur-test.aminvest73.workers.dev",
   rpId: "aminvest73-hash.github.io",
   environnement: 'essai',
   projet: 'essai',
   langue: 'fr',
-  jeux: {"https://raw.githack.com":"Faux jeu (essai)"},
+  jeux: {"https://raw.githack.com":"Faux jeu (essai)","https://staging.monstermine.io":"MonsterMine (essai)"},
 };

@@ -10,6 +10,9 @@
 //   defi       un défi tiré par le serveur du jeu pour cette tentative (16 à 128 caractères parmi A-Z a-z 0-9 _ -),
 //              qu'il n'acceptera qu'une fois
 //   adresse    facultatif : le wallet déjà lié à ce compte de jeu. La fenêtre refusera alors d'en créer un autre.
+//   existant   facultatif : vrai quand le joueur dit qu'il a déjà son coffre et que le jeu ne connaît pas encore
+//              son wallet. La fenêtre ne proposera pas d'en créer un. Une page du coffre trop ancienne pour le
+//              comprendre ne reçoit pas la demande : le jeu reçoit l'erreur CoffreTropAncien.
 //
 // À appeler dans le geste du joueur (un clic), sans rien attendre avant : sinon le navigateur bloque l'ouverture
 // de la fenêtre. Le défi se demande donc au serveur du jeu à l'avance (voir demo.mjs et serveur-jeu.mjs).
@@ -17,7 +20,7 @@
 
 const hasard = () => { const o = crypto.getRandomValues(new Uint8Array(18)); let s = ''; for (const x of o) s += String.fromCharCode(x); return btoa(s).replace(/\+/g, '-').replace(/\//g, '_'); };
 
-export function connexionCoffre({ coffre, defi, adresse, fenetre, delai }) {
+export function connexionCoffre({ coffre, defi, adresse, existant, fenetre, delai }) {
   const moi = fenetre || window;
   const origineCoffre = new URL(coffre).origin;
   const id = hasard();
@@ -44,8 +47,11 @@ export function connexionCoffre({ coffre, defi, adresse, fenetre, delai }) {
     const m = ev.data;
     if (!m || typeof m !== 'object') return;
     if (m.type === 'coffre-pret') {
+      // « Sans création » ne se demande qu'à une page qui le comprend : une plus ancienne proposerait de créer.
+      if (existant && !(m.v >= 2)) { try { w.close(); } catch (_) { /* déjà fermée */ } finir(echouer, erreur('CoffreTropAncien')); return; }
       const demande = { type: 'jeu-connexion', id, defi };
       if (adresse) demande.adresse = adresse;
+      if (existant) demande.existant = true;
       w.postMessage(demande, origineCoffre);
     } else if (m.type === 'coffre-connexion' && m.id === id) {
       if (typeof m.adresse !== 'string' || typeof m.message !== 'string' || typeof m.signature !== 'string') return;

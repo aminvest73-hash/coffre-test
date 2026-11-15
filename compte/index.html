@@ -6,16 +6,27 @@
 <meta name="referrer" content="no-referrer">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#f3f4f7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0e1116" media="(prefers-color-scheme: dark)">
 <title>Mon coffre (essai du compte)</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <main>
-  <h1>Mon coffre</h1>
-  <p class="muted">Essai du compte. Les clés créées ici sont jetables et ne protègent rien de réel.</p>
+  <header class="entete">
+    <svg class="marque" viewBox="0 0 40 40" aria-hidden="true" focusable="false">
+      <rect class="porte" x="3" y="3" width="34" height="34" rx="10"/>
+      <circle class="cadran" cx="20" cy="20" r="8"/>
+      <path class="cadran" d="M20 12v3.5M20 24.5V28M12 20h3.5M24.5 20H28"/>
+    </svg>
+    <div>
+      <h1>Mon coffre</h1>
+      <p class="muted">Essai. Les clés créées ici sont jetables et ne protègent rien de réel.</p>
+    </div>
+  </header>
   <div class="status ko" id="blocage" hidden></div>
 
-  <section class="card" id="v-jeu" hidden>
+  <section class="card jeu" id="v-jeu" hidden>
     <h2>Connexion à un jeu</h2>
     <p><strong id="jeu-nom"></strong> te demande de te connecter avec ton coffre.</p>
     <p class="muted" id="jeu-site"></p>
@@ -55,17 +66,20 @@
     <div class="status" id="garde"></div>
     <button id="b-renvoyer" hidden>Réessayer de le confier au serveur</button>
     <button id="b-reconnecter">Me connecter</button>
-    <button id="b-ouvrir" class="second">Ouvrir mon coffre sans le serveur</button>
-    <button id="b-oublier" class="second">Oublier ce coffre sur cet appareil</button>
+    <details class="plus">
+      <summary>Autres actions</summary>
+      <button id="b-ouvrir" class="second">Ouvrir mon coffre sans le serveur</button>
+      <button id="b-oublier" class="second">Oublier ce coffre sur cet appareil</button>
+    </details>
     <div class="status" id="s-coffre"></div>
   </section>
 
-  <section class="card" id="v-resultat">
-    <h2>Pour l'essai</h2>
+  <details class="card essai" id="v-resultat">
+    <summary>Pour l'essai : le relevé</summary>
     <button id="b-copier" class="second">Copier le résultat</button>
     <textarea id="resultat" readonly></textarea>
     <div class="status" id="s-resultat"></div>
-  </section>
+  </details>
 </main>
 <script type="module" src="page.mjs"></script>
 </body>

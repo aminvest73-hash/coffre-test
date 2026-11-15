@@ -110,7 +110,10 @@ function validerCode() {
   $('code-testeur').value = '';
   $('v-admission').hidden = true;
   noter('[page] code de testeur saisi');
-  dire(fiche ? 's-coffre' : 's-accueil', 'Code enregistré pour cet onglet. Recommence ton geste.', 'ok');
+  // Le message se pose à côté du bouton à retoucher, et il remplace le refus affiché juste avant : sinon le
+  // testeur lit encore « ce serveur demande un code » sous le bouton et s'arrête là (essai du 13/11 sur iPhone).
+  if (demandeJeu() && fiche) { dire('s-coffre', ''); dire('s-jeu', 'Code enregistré. Touche de nouveau « Me connecter à ce jeu ».', 'ok'); }
+  else dire(fiche ? 's-coffre' : 's-accueil', 'Code enregistré pour cet onglet. Touche de nouveau le bouton que tu venais de toucher.', 'ok');
 }
 const appareil = {
   creer: (o) => navigator.credentials.create({ publicKey: o }),
@@ -130,7 +133,7 @@ async function afficher(message, sorte) {
   $('adresse').textContent = fiche.coffre.adresse;
   dire('garde', fiche.garde ? 'Gardé chez nous : oui. Tu le retrouveras sur tes autres appareils.' : 'Gardé chez nous : non. Il n\'existe que sur cet appareil.', fiche.garde ? 'ok' : 'ko');
   $('b-renvoyer').hidden = fiche.garde;
-  $('b-reconnecter').hidden = !fiche.garde;
+  $('b-reconnecter').hidden = !fiche.garde || !!demandeJeu();   // un jeu attend : un seul bouton, celui de sa carte
   desarmer();
   montrer('v-coffre');
   dire('s-coffre', message, sorte);
@@ -139,24 +142,28 @@ const seul = (fn) => async () => { if (occupe) return; occupe = true; try { awai
 const ATTENTE = 'Ton appareil te demande de confirmer…';
 
 // ---------- Un jeu a ouvert cette fenêtre pour connecter le joueur. La preuve ne part qu'à ce jeu, et seulement
-// si le coffre est gardé par le serveur. Si le jeu annonce le wallet déjà lié au compte, on n'en crée pas d'autre.
+// si le coffre est gardé par le serveur. Si le jeu annonce le wallet déjà lié au compte, ou dit seulement que le
+// joueur a déjà son coffre, on n'en crée pas d'autre.
 const demandeJeu = () => { const d = lien && lien.demande(); return d && !d.retiree ? d : null; };
+const sansCreation = (d) => !!(d && (d.attendue || d.existant));
 function rafraichirJeu() {
   const d = demandeJeu();
   $('v-jeu').hidden = !d;
+  if (fiche) $('b-reconnecter').hidden = !fiche.garde || !!d;
   if (!d) return;
   $('jeu-nom').textContent = d.nom;
   $('jeu-site').textContent = 'Site : ' + d.jeu;
   $('b-jeu').hidden = !fiche;
   if (!fiche) dire('s-jeu', d.attendue ? 'Ce compte de jeu a déjà un wallet. Retrouve ton coffre juste en dessous : tu entreras ensuite dans le jeu.'
+    : d.existant ? 'Retrouve ton coffre juste en dessous : tu entreras ensuite dans le jeu. Si tu n\'en as pas encore, ferme cette fenêtre et reviens au jeu.'
     : 'Crée ton coffre, ou retrouve-le, juste en dessous : tu entreras ensuite dans le jeu.', 'wait');
 }
 // « Créer mon coffre » n'est proposé que si rien ne dit que ce joueur en a déjà un : ni le jeu, ni son identité.
 // Et, quand le service demande de dire qui on est, seulement après le code validé.
 function rafraichirAccueil() {
   const d = demandeJeu();
-  $('z-identite').hidden = !PAR_EMAIL || !!identite;
-  $('b-creer').hidden = !!(d && d.attendue) || (PAR_EMAIL && (!identite || identite.coffre));
+  $('z-identite').hidden = !PAR_EMAIL || !!identite || sansCreation(d);   // l'adresse ne sert qu'à créer
+  $('b-creer').hidden = sansCreation(d) || (PAR_EMAIL && (!identite || identite.coffre));
 }
 // ---------- Dire qui on est : une adresse e-mail, puis le code reçu. L'adresse n'est ni gardée ni écrite au relevé.
 async function envoyerCode() {
@@ -212,8 +219,10 @@ async function entrerDansLeJeu() {
 }
 
 async function creer() {
-  dire('s-accueil', ATTENTE, 'wait');
   const d = demandeJeu();
+  // Le bouton est caché dans ce cas ; la règle est tenue ici aussi.
+  if (sansCreation(d)) { dire('s-accueil', 'Ce jeu demande un coffre qui existe déjà. Rien n\'a été créé.', 'ko'); return; }
+  dire('s-accueil', ATTENTE, 'wait');
   try {
     const r = await c.creer('Mon coffre (essai) ' + new Date().toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }),
       d ? { connexion: { jeu: d.jeu, defi: d.defi } } : undefined);

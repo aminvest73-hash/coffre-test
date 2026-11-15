@@ -1,31 +1,64 @@
-/* Styles repris de la page du premier morceau. L'habillage viendra plus tard. */
+/* L'habillage de l'essai : sobre, lisible sur un téléphone. Rien n'est chargé d'ailleurs : ni police, ni image.
+   L'habillage du produit viendra plus tard ; ici, seulement de quoi lire et toucher sans se tromper. */
 :root {
   color-scheme: light dark;
-  --bg: #f5f6f8; --card: #ffffff; --ink: #1b2130; --muted: #5c6577; --line: #dde2ea;
-  --accent: #2c5fd1; --accent-ink: #ffffff; --ok: #1d8a4b; --ko: #c23a2b; --wait: #a66a12;
+  --bg: #f3f4f7; --card: #ffffff; --ink: #141a26; --muted: #5d6677; --line: #e1e5ec;
+  --accent: #2f5bea; --accent-ink: #ffffff;
+  --ok: #18794a; --ok-doux: #e6f5ec; --ko: #b93525; --ko-doux: #fbeae7; --wait: #8a5a0b; --wait-doux: #fbf2df;
+  --ombre: 0 1px 2px rgba(20, 26, 38, .06), 0 8px 24px rgba(20, 26, 38, .06);
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #11141a; --card: #1a1f28; --ink: #eef1f6; --muted: #9ba5b6; --line: #2b323f;
-    --accent: #7ea4ff; --accent-ink: #0d1220; --ok: #53c684; --ko: #ff8273; --wait: #e5b663;
+    --bg: #0e1116; --card: #171b23; --ink: #eef1f6; --muted: #98a2b3; --line: #262d3a;
+    --accent: #8aa9ff; --accent-ink: #0b1020;
+    --ok: #5fd08f; --ok-doux: #12261b; --ko: #ff8b7d; --ko-doux: #2c1614; --wait: #e8bd6a; --wait-doux: #2a2111;
+    --ombre: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px rgba(0, 0, 0, .25);
   }
 }
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--ink);
+/* Sur un téléphone, le navigateur pose un voile gris sur ce qu'on touche : chaque bouton a déjà son propre retour. */
+html { -webkit-tap-highlight-color: transparent; -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink); -webkit-font-smoothing: antialiased;
        font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
-main { max-width: 560px; margin: 0 auto; padding: 20px 16px 56px; }
-h1 { font-size: 26px; line-height: 1.2; margin: 8px 0 6px; }
-h2 { font-size: 18px; margin: 0 0 6px; }
+main { max-width: 460px; margin: 0 auto; padding: 20px 16px max(40px, env(safe-area-inset-bottom)); }
+
+.entete { display: flex; align-items: center; gap: 12px; margin: 6px 2px 2px; }
+.entete .muted { margin: 2px 0 0; font-size: 13px; }
+.marque { width: 40px; height: 40px; flex-shrink: 0; }
+.marque .porte { fill: var(--accent); }
+.marque .cadran { fill: none; stroke: var(--accent-ink); stroke-width: 2.4; stroke-linecap: round; }
+
+h1 { font-size: 24px; line-height: 1.15; letter-spacing: -0.02em; margin: 8px 0 6px; }
+.entete h1 { margin: 0; }
+h2 { font-size: 17px; line-height: 1.25; letter-spacing: -0.01em; margin: 0 0 6px; }
 p { margin: 0 0 10px; }
 .muted { color: var(--muted); font-size: 14px; }
-.card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; margin-top: 14px; }
-button { font: inherit; font-weight: 600; border: 0; border-radius: 10px; padding: 12px 16px; min-height: 46px;
-         background: var(--accent); color: var(--accent-ink); cursor: pointer; width: 100%; margin-top: 8px; }
+
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 18px; margin-top: 14px; box-shadow: var(--ombre); }
+/* La demande d'un jeu est ce que le joueur est venu faire : elle se voit en premier. */
+.card.jeu { border-color: var(--accent); }
+.card.jeu strong { font-size: 18px; letter-spacing: -0.01em; }
+
+button { font: inherit; font-weight: 600; border: 0; border-radius: 12px; padding: 13px 16px; min-height: 48px;
+         background: var(--accent); color: var(--accent-ink); cursor: pointer; width: 100%; margin-top: 10px;
+         touch-action: manipulation; -webkit-user-select: none; user-select: none;
+         transition: transform .12s ease-out, opacity .12s ease-out; }
+button:active { transform: scale(.97); }
+/* Le survol ne se montre que là où il existe vraiment : sur un écran tactile, il resterait collé après le toucher. */
+@media (hover: hover) and (pointer: fine) { button:hover { opacity: .9; } }
+button:focus-visible, input:focus-visible, textarea:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 button.second { background: transparent; color: var(--accent); border: 1px solid var(--line); }
 button.petit { width: auto; min-height: 40px; padding: 6px 12px; margin: 0; font-weight: 500; font-size: 14px; }
 button:disabled { opacity: .45; cursor: not-allowed; }
-.status { margin-top: 10px; font-size: 15px; overflow-wrap: anywhere; }
-.status.ok { color: var(--ok); } .status.ko { color: var(--ko); } .status.wait { color: var(--wait); }
+@media (prefers-reduced-motion: reduce) { button { transition: none; } button:active { transform: none; } }
+
+.status { margin-top: 12px; font-size: 15px; overflow-wrap: anywhere; }
+.status:empty { display: none; }
+.status.ok, .status.ko, .status.wait { padding: 10px 12px; border-radius: 10px; }
+.status.ok { color: var(--ok); background: var(--ok-doux); }
+.status.ko { color: var(--ko); background: var(--ko-doux); }
+.status.wait { color: var(--wait); background: var(--wait-doux); }
+
 .adresse { font: 600 15px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow-wrap: anywhere; }
 .mots { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; margin: 10px 0; padding: 0; list-style: none; }
 .mots li, .carte { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; background: var(--card); color: var(--ink); font: inherit; }
@@ -34,10 +67,16 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .carte { width: auto; min-height: 44px; margin: 0; font-weight: 500; cursor: pointer; }
 .carte.posee { opacity: .35; }
 .mots li.vide { opacity: .5; }
-input[type="text"], input[type="password"], textarea { width: 100%; padding: 10px; border-radius: 10px; border: 1px solid var(--line);
+
+/* 16 px au moins dans un champ : en dessous, l'iPhone zoome dans la page dès qu'on le touche. */
+input[type="text"], input[type="password"], textarea { width: 100%; padding: 12px; min-height: 48px; border-radius: 12px; border: 1px solid var(--line);
          background: transparent; color: var(--ink); font: inherit; }
-textarea { min-height: 120px; font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; resize: vertical; margin-top: 6px; }
-#r-texte { font-size: 16px; } /* en dessous de 16, l'iPhone zoome dans la page dès qu'on touche le champ */
+textarea { min-height: 120px; font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; resize: vertical; margin-top: 10px; }
+#r-texte { font-size: 16px; }
 .saisie { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; margin: 10px 0; }
-details { margin-top: 10px; } summary { cursor: pointer; color: var(--accent); font-weight: 500; }
+
+details { margin-top: 12px; }
+summary { cursor: pointer; color: var(--muted); font-weight: 500; font-size: 14px; -webkit-user-select: none; user-select: none; }
+details.card { margin-top: 14px; box-shadow: none; background: transparent; }
+details.card > summary { font-weight: 600; }
 [hidden] { display: none !important; }

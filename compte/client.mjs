@@ -209,8 +209,25 @@ export function client({ api, appareil, stock, reglages, noter }) {
     const session = await N.ouvrirParPasskey(lu.etat.coffre, cred, sortie);
     const nouvelle = { compte, cred, coffre: lu.etat.coffre, etat: rendu.etat, message: rendu.message, signature: rendu.signature,
       version: lu.version, empreinte: lu.empreinte, garde: true };
+    // « Secours fait » suit le compte. L'attestation rendue par le serveur est un candidat comme le reste : elle doit
+    // être signée par le wallet de ce coffre et désigner son accès de secours actuel. Si le serveur n'en rend pas,
+    // celle que l'appareil connaît reste, tant qu'elle vaut encore pour ce coffre.
+    const pourSecours = { service: reglages.origine, environnement: reglages.environnement, projet: reglages.projet, compte, coffre: lu.etat.coffre };
+    const relire = async (s) => {
+      await K.relireAttestation({ message: K.deB64u(s.message), signature: K.deB64u(s.signature, 64) }, pourSecours);
+      return { message: s.message, signature: s.signature };
+    };
+    try {
+      if (rendu.secours !== undefined) {
+        if (!rendu.secours || typeof rendu.secours.message !== 'string' || typeof rendu.secours.signature !== 'string') refuser('CandidatRefuse', 'secours');
+        nouvelle.secours = await relire(rendu.secours);
+      } else if (fiche && fiche.secours) {
+        try { nouvelle.secours = await relire(fiche.secours); } catch (_) { /* elle ne vaut plus pour ce coffre */ }
+      }
+    } catch (e) { session.fermer(); throw e; }
+    const appris = !!nouvelle.secours && !(fiche && fiche.secours);
     if (!fiche) { await stock.inscrire(nouvelle); dire('[connecter] coffre recu du serveur et range sur cet appareil | adresse ' + session.adresse); }
-    else if (lu.version > fiche.version || !fiche.garde) { await stock.remplacer(fiche, nouvelle); dire('[connecter] copie de l\'appareil mise a jour | version ' + lu.version); }
+    else if (lu.version > fiche.version || !fiche.garde || appris) { await stock.remplacer(fiche, nouvelle); dire('[connecter] copie de l\'appareil mise a jour | version ' + lu.version); }
     else dire('[connecter] ok : meme version que sur l\'appareil | adresse ' + session.adresse);
     return session;
   }
@@ -241,7 +258,39 @@ export function client({ api, appareil, stock, reglages, noter }) {
     } finally { session.fermer(); }
   }
 
-  return { creer, renvoyer, connecter, ouvrirLocal, accepter, prouver, demanderCode, validerCode };
+  // ---------- La mission des 12 mots. Un geste (la connexion), puis les mots sont lus dans le coffre ouvert.
+  // `valider(mots)` reçoit les mots dans l'ordre que le joueur a donné. C'est une vraie restauration : le coffre
+  // fermé de l'appareil est rouvert par ces mots seuls. Si elle réussit, la clé du wallet atteste le secours auprès
+  // du serveur, et l'appareil le retient. Si elle échoue, rien n'est envoyé et rien n'est dit de plus que « non ».
+  async function mission() {
+    const avant = await stock.lire();
+    if (!avant) refuser('PasDeCoffre');
+    if (!avant.garde) refuser('NonGarde');
+    const session = await connecter();
+    let mots;
+    try { mots = await session.lireMots(); } catch (e) { session.fermer(); throw e; }
+    return {
+      mots, langue: session.langue,
+      async valider(donnes) {
+        const fiche = await stock.lire();
+        if (!fiche || fiche.compte !== avant.compte) refuser('StockChange');
+        try { (await N.ouvrirParSecours(fiche.coffre, donnes)).fermer(); }
+        catch (_) { refuser('MotsRefuses'); }   // un seul refus, quel que soit ce qui cloche : aucun indice
+        const d = await api('/secours/defi', { compte: fiche.compte });
+        K.controlerDuree(d.expire, maintenant());
+        const a = await session.attesterSecours({ service: reglages.origine, environnement: reglages.environnement, projet: reglages.projet,
+          compte: fiche.compte, defi: d.defi, expire: d.expire, avant: { version: fiche.version, empreinte: fiche.empreinte } });
+        const secours = { message: K.b64u(a.message), signature: K.b64u(a.signature) };
+        await api('/secours/attester', { compte: fiche.compte, defi: d.defi, message: secours.message, signature: secours.signature });
+        await stock.remplacer(fiche, Object.assign({}, fiche, { secours }));
+        dire('[mission] secours atteste par la cle du wallet, et range chez nous');
+        return true;
+      },
+      fermer() { session.fermer(); for (let i = 0; i < mots.length; i++) mots[i] = ''; },
+    };
+  }
+
+  return { creer, renvoyer, connecter, ouvrirLocal, accepter, prouver, demanderCode, validerCode, mission };
 }
 
 // Un stockage en mémoire, pour les essais. La page a le sien, sur IndexedDB, avec les mêmes règles :

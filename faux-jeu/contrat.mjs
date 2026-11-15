@@ -417,6 +417,51 @@ export function controlerFraicheur(reservation, maintenant) {
   if (!reservation || !Number.isSafeInteger(reservation.expire) || !Number.isSafeInteger(maintenant) || reservation.expire <= maintenant) refuser('Expire');
 }
 
+// ---------- Attester le secours. La mission est faite : la clé du wallet déclare que l'accès de secours en place
+// a servi à une vraie restauration dans notre page. L'état gardé ne change pas : l'attestation se range à côté.
+// Elle désigne l'accès de secours par son empreinte : si cet accès est remplacé un jour, elle ne vaut plus.
+// Elle ne prouve pas qu'un papier est rangé quelque part.
+export async function empreinteAccesSecours(coffre) {
+  return empreinte(te.encode(canoniser(coffre.acces[coffre.acces.length - 1])));
+}
+// Ce que le serveur contrôle. `attendu` vient de sa configuration, de sa base et du défi qu'il a émis pour ce
+// compte, jamais de la demande :
+// { service, environnement, projet, compte, coffre, adresse, defi, expire, version, empreinte, acces }.
+// Un champ oublié dans `attendu` fait refuser. L'appelant consomme ensuite le défi, dans l'écriture elle-même.
+export async function controlerAttestation(corps, attendu) {
+  const { signataire, contenu } = lireMessageHorsChaine(corps.message, TAILLE_CONTENU);
+  const g = validerGestion(lireCanonique(contenu, TAILLE_CONTENU));
+  if (g.action !== 'attester-secours') refuser('ContexteRefuse', 'action');
+  for (const champ of ['service', 'environnement', 'projet', 'compte', 'coffre', 'adresse']) {
+    if (typeof attendu[champ] !== 'string' || g[champ] !== attendu[champ]) refuser('ContexteRefuse', champ);
+  }
+  if (base58(signataire) !== g.adresse) refuser('SignataireRefuse');
+  if (!(await verifierSignature(signataire, corps.signature, corps.message))) refuser('SignatureRefusee');
+  if (typeof attendu.defi !== 'string' || g.defi !== attendu.defi) refuser('DefiRefuse');
+  if (!Number.isSafeInteger(attendu.expire) || g.expire !== attendu.expire) refuser('ExpirationRefusee');
+  if (!Number.isSafeInteger(attendu.version) || typeof attendu.empreinte !== 'string'
+    || g.avant.version !== attendu.version || g.avant.empreinte !== attendu.empreinte) refuser('EtatRefuse', 'version');
+  if (typeof attendu.acces !== 'string' || g.secours.acces !== attendu.acces) refuser('EtatRefuse', 'acces de secours');
+  return { gestion: g, version: g.avant.version };
+}
+// Ce que la page relit quand une attestation lui revient (du serveur, ou de sa propre copie) : signée par le wallet
+// de ce coffre, pour ce compte, et désignant l'accès de secours que ce coffre porte aujourd'hui. Le défi est consommé
+// depuis longtemps : cela n'empêche pas de relire. `attendu` : { service, environnement, projet, compte, coffre },
+// où `coffre` est le coffre fermé que la page vient d'accepter.
+export async function relireAttestation(corps, attendu) {
+  const { signataire, contenu } = lireMessageHorsChaine(corps.message, TAILLE_CONTENU);
+  const g = validerGestion(lireCanonique(contenu, TAILLE_CONTENU));
+  if (g.action !== 'attester-secours') refuser('ContexteRefuse', 'action');
+  const c = attendu.coffre;
+  if (g.service !== attendu.service || g.environnement !== attendu.environnement || g.projet !== attendu.projet) refuser('ContexteRefuse', 'service');
+  if (typeof attendu.compte !== 'string' || g.compte !== attendu.compte) refuser('ContexteRefuse', 'compte');
+  if (!c || g.coffre !== c.id || g.adresse !== c.adresse || base58(signataire) !== c.adresse) refuser('ContexteRefuse', 'coffre');
+  if (g.avant.version > c.version) refuser('EtatRefuse', 'version');
+  if (g.secours.acces !== (await empreinteAccesSecours(c))) refuser('EtatRefuse', 'acces de secours');
+  if (!(await verifierSignature(signataire, corps.signature, corps.message))) refuser('SignatureRefusee');
+  return true;
+}
+
 // Les durées, communes à la page et au serveur.
 export const DUREE_RESERVATION = 300;   // secondes : ce que vit une réservation, ou un défi de connexion
 export const TOLERANCE_HORLOGE = 120;   // secondes d'écart admises entre l'horloge d'un appareil et celle du serveur

@@ -66,12 +66,82 @@
     <div class="status" id="garde"></div>
     <button id="b-renvoyer" hidden>Réessayer de le confier au serveur</button>
     <button id="b-reconnecter">Me connecter</button>
+    <div class="status" id="secours"></div>
+    <button id="b-mission" class="second">Faire ma mission de secours</button>
     <details class="plus">
       <summary>Autres actions</summary>
       <button id="b-ouvrir" class="second">Ouvrir mon coffre sans le serveur</button>
       <button id="b-oublier" class="second">Oublier ce coffre sur cet appareil</button>
     </details>
     <div class="status" id="s-coffre"></div>
+  </section>
+
+  <section class="card" id="v-mission" hidden>
+    <h2>Mission : ton secours</h2>
+    <div id="m-intro">
+      <p>Si tu perds ton appareil, tes 12 mots te rendront ton wallet. Ta mission : les noter sur un papier, puis les remettre dans l'ordre.</p>
+      <p class="muted">Fais-la seul : personne ne doit voir ton écran pendant la mission.</p>
+      <details class="plus">
+        <summary>À quoi ça sert ?</summary>
+        <p class="muted">Ces 12 mots sont un double de la clé de ton coffre. Personne d'autre ne les connaît, nous non plus. Si tu les perds en même temps que tes appareils, personne ne pourra ouvrir ton coffre. Ne les donne jamais à personne : ni à un jeu, ni à nous, ni à quelqu'un qui dit t'aider.</p>
+      </details>
+      <button id="b-m-voir">Voir mes 12 mots</button>
+    </div>
+    <div id="m-mots" hidden>
+      <p>Note ces 12 mots sur un papier, dans l'ordre. Pas de capture d'écran.</p>
+      <ol class="mots">
+        <li><span>1</span><b id="m-mot-1"></b></li>
+        <li><span>2</span><b id="m-mot-2"></b></li>
+        <li><span>3</span><b id="m-mot-3"></b></li>
+        <li><span>4</span><b id="m-mot-4"></b></li>
+        <li><span>5</span><b id="m-mot-5"></b></li>
+        <li><span>6</span><b id="m-mot-6"></b></li>
+        <li><span>7</span><b id="m-mot-7"></b></li>
+        <li><span>8</span><b id="m-mot-8"></b></li>
+        <li><span>9</span><b id="m-mot-9"></b></li>
+        <li><span>10</span><b id="m-mot-10"></b></li>
+        <li><span>11</span><b id="m-mot-11"></b></li>
+        <li><span>12</span><b id="m-mot-12"></b></li>
+      </ol>
+      <button id="b-m-note">C'est noté, je continue</button>
+    </div>
+    <div id="m-cartes" hidden>
+      <p>Touche tes 12 mots dans l'ordre, du premier au douzième. La page ne te dit rien en route : tu sauras à la fin si c'est bon.</p>
+      <ol class="mots">
+        <li><span>1</span><b id="m-place-1"></b></li>
+        <li><span>2</span><b id="m-place-2"></b></li>
+        <li><span>3</span><b id="m-place-3"></b></li>
+        <li><span>4</span><b id="m-place-4"></b></li>
+        <li><span>5</span><b id="m-place-5"></b></li>
+        <li><span>6</span><b id="m-place-6"></b></li>
+        <li><span>7</span><b id="m-place-7"></b></li>
+        <li><span>8</span><b id="m-place-8"></b></li>
+        <li><span>9</span><b id="m-place-9"></b></li>
+        <li><span>10</span><b id="m-place-10"></b></li>
+        <li><span>11</span><b id="m-place-11"></b></li>
+        <li><span>12</span><b id="m-place-12"></b></li>
+      </ol>
+      <p class="muted" id="m-avance"></p>
+      <div class="cartes">
+        <button type="button" class="carte" id="m-carte-1"></button>
+        <button type="button" class="carte" id="m-carte-2"></button>
+        <button type="button" class="carte" id="m-carte-3"></button>
+        <button type="button" class="carte" id="m-carte-4"></button>
+        <button type="button" class="carte" id="m-carte-5"></button>
+        <button type="button" class="carte" id="m-carte-6"></button>
+        <button type="button" class="carte" id="m-carte-7"></button>
+        <button type="button" class="carte" id="m-carte-8"></button>
+        <button type="button" class="carte" id="m-carte-9"></button>
+        <button type="button" class="carte" id="m-carte-10"></button>
+        <button type="button" class="carte" id="m-carte-11"></button>
+        <button type="button" class="carte" id="m-carte-12"></button>
+      </div>
+      <button id="b-m-valider" disabled>Valider mes 12 mots</button>
+      <button id="b-m-retirer" class="second" disabled>Retirer le dernier mot</button>
+      <button id="b-m-revoir" class="second">Revoir mes mots</button>
+    </div>
+    <div class="status" id="s-mission"></div>
+    <button id="b-m-annuler" class="second">Annuler</button>
   </section>
 
   <details class="card essai" id="v-resultat">

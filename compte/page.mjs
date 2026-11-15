@@ -5,11 +5,14 @@ import * as K from './contrat.mjs';
 import { client } from './client.mjs';
 import { REGLAGES } from './reglages.mjs';
 import { lienJeu } from './lien-jeu.mjs';
+import { melanger } from './noyau.mjs';
 
 const $ = (id) => document.getElementById(id);
-const VUES = ['v-accueil', 'v-coffre'];
+const VUES = ['v-accueil', 'v-coffre', 'v-mission'];
+const ETAPES = ['m-intro', 'm-mots', 'm-cartes'];
 const journal = [];
 let fiche = null, occupe = false, armeOublier = null;
+let mission = null;   // seulement pendant la mission : { m (la mission du client), cartes (les mots mélangés), poses (numéros des cartes posées) }
 let lien = null;   // présent seulement quand un jeu enregistré a ouvert cette fenêtre
 // Quand le service demande au joueur de dire qui il est : rien, puis { coffre : oui ou non } une fois le code validé.
 const PAR_EMAIL = REGLAGES.identite === 'email';
@@ -43,6 +46,8 @@ const MESSAGES = {
   RetourEnArriere: 'Le serveur a rendu un coffre plus ancien que celui de cet appareil. Rien n\'a été changé ici.',
   Divergence: 'Le serveur a rendu un coffre différent de celui de cet appareil. Rien n\'a été changé ici.',
   OuvertureRefusee: 'Ce coffre ne s\'ouvre pas avec cette clé d\'accès. Rien n\'a été changé ici.',
+  PasDeCoffre: 'Il n\'y a pas de coffre sur cet appareil.',
+  StockChange: 'Le coffre gardé sur cet appareil a changé entre-temps. Recommence.',
 };
 const expliquer = (e) => MESSAGES[e && e.name] || ('Refusé (' + ((e && e.name) || 'erreur') + '). Rien n\'a été changé sur cet appareil.');
 const detail = (e) => (e && e.name ? e.name : 'erreur') + (e && e.detail ? ' (' + e.detail + ')' : '');
@@ -113,6 +118,7 @@ function validerCode() {
   // Le message se pose à côté du bouton à retoucher, et il remplace le refus affiché juste avant : sinon le
   // testeur lit encore « ce serveur demande un code » sous le bouton et s'arrête là (essai du 13/11 sur iPhone).
   if (demandeJeu() && fiche) { dire('s-coffre', ''); dire('s-jeu', 'Code enregistré. Touche de nouveau « Me connecter à ce jeu ».', 'ok'); }
+  else if (mission === null && !$('v-mission').hidden) dire('s-mission', 'Code enregistré. Touche de nouveau « Voir mes 12 mots ».', 'ok');
   else dire(fiche ? 's-coffre' : 's-accueil', 'Code enregistré pour cet onglet. Touche de nouveau le bouton que tu venais de toucher.', 'ok');
 }
 const appareil = {
@@ -134,6 +140,10 @@ async function afficher(message, sorte) {
   dire('garde', fiche.garde ? 'Gardé chez nous : oui. Tu le retrouveras sur tes autres appareils.' : 'Gardé chez nous : non. Il n\'existe que sur cet appareil.', fiche.garde ? 'ok' : 'ko');
   $('b-renvoyer').hidden = fiche.garde;
   $('b-reconnecter').hidden = !fiche.garde || !!demandeJeu();   // un jeu attend : un seul bouton, celui de sa carte
+  // Le secours : fait ou à faire. La mission se fait hors de la demande d'un jeu, sur un coffre déjà gardé.
+  dire('secours', fiche.secours ? 'Secours : fait. Tes 12 mots ouvrent ce coffre.' : 'Secours : à faire. Sans lui, perdre tes appareils, c\'est perdre ton wallet.', fiche.secours ? 'ok' : 'wait');
+  $('b-mission').textContent = fiche.secours ? 'Refaire ma mission de secours' : 'Faire ma mission de secours';
+  $('b-mission').hidden = !fiche.garde || !!demandeJeu();
   desarmer();
   montrer('v-coffre');
   dire('s-coffre', message, sorte);
@@ -149,7 +159,7 @@ const sansCreation = (d) => !!(d && (d.attendue || d.existant));
 function rafraichirJeu() {
   const d = demandeJeu();
   $('v-jeu').hidden = !d;
-  if (fiche) $('b-reconnecter').hidden = !fiche.garde || !!d;
+  if (fiche) { $('b-reconnecter').hidden = !fiche.garde || !!d; $('b-mission').hidden = !fiche.garde || !!d; }
   if (!d) return;
   $('jeu-nom').textContent = d.nom;
   $('jeu-site').textContent = 'Site : ' + d.jeu;
@@ -275,6 +285,90 @@ async function oublier() {
   try { await stock.effacer(fiche); noter('[oublier] coffre retire de cet appareil'); await afficher('Coffre oublié sur cet appareil.', 'ok'); }
   catch (e) { noter('[oublier] echec : ' + detail(e)); await afficher(expliquer(e), 'ko'); }
 }
+// ---------- La mission des 12 mots : les voir une fois, puis les remettre dans l'ordre en touchant des cartes.
+// Aucun indice en route : un mot touché va à la place suivante, sans que la page dise s'il est bien placé. Sinon il
+// suffirait d'essayer les cartes une à une pour trouver l'ordre, sans avoir rien noté. La seule vérification vient
+// à la fin : une vraie restauration du coffre par les mots donnés. La réponse est oui ou non.
+const etape = (id) => { for (const e of ETAPES) $(e).hidden = e !== id; };
+function effacerMission() {
+  for (let i = 1; i <= 12; i++) {
+    $('m-mot-' + i).textContent = ''; $('m-place-' + i).textContent = '';
+    const b = $('m-carte-' + i); b.textContent = ''; b.disabled = false; b.className = 'carte';
+  }
+  $('m-avance').textContent = ''; $('b-m-valider').disabled = true; $('b-m-retirer').disabled = true;
+}
+function quitterMission() { if (mission) { mission.m.fermer(); mission = null; } effacerMission(); }
+function ouvrirMission() { quitterMission(); dire('s-mission', ''); etape('m-intro'); montrer('v-mission'); }
+async function voirMots() {
+  if (mission) { montrerMots(); return; }
+  dire('s-mission', ATTENTE, 'wait');
+  try {
+    const m = await c.mission();
+    mission = { m, cartes: [], poses: [] };
+    noter('[mission] mots affiches');
+    montrerMots();
+    dire('s-mission', '');
+  } catch (e) { noter('[mission] echec a l\'ouverture : ' + detail(e)); dire('s-mission', expliquer(e), 'ko'); }
+}
+function montrerMots() {
+  if (!mission) return;
+  effacerMission();
+  mission.poses = [];
+  for (let i = 0; i < 12; i++) $('m-mot-' + (i + 1)).textContent = mission.m.mots[i];
+  dire('s-mission', '');
+  etape('m-mots');
+}
+function lancerCartes() {
+  if (!mission) return;
+  effacerMission();   // les mots ne restent pas affichés pendant le jeu
+  mission.poses = [];
+  mission.cartes = melanger(mission.m.mots.slice());
+  for (let i = 0; i < 12; i++) $('m-carte-' + (i + 1)).textContent = mission.cartes[i];
+  dessinerPlaces();
+  dire('s-mission', '');
+  etape('m-cartes');
+}
+function dessinerPlaces() {
+  for (let k = 0; k < 12; k++) $('m-place-' + (k + 1)).textContent = k < mission.poses.length ? mission.cartes[mission.poses[k]] : '';
+  $('m-avance').textContent = mission.poses.length + ' sur 12';
+  $('b-m-valider').disabled = mission.poses.length !== 12;
+  $('b-m-retirer').disabled = mission.poses.length === 0;
+}
+function toucher(i) {
+  if (!mission || occupe || mission.poses.includes(i) || mission.poses.length >= 12 || !mission.cartes.length) return;
+  mission.poses.push(i);
+  const b = $('m-carte-' + (i + 1)); b.disabled = true; b.className = 'carte posee';
+  dessinerPlaces();
+}
+function retirer() {
+  if (!mission || occupe || !mission.poses.length) return;
+  const b = $('m-carte-' + (mission.poses.pop() + 1)); b.disabled = false; b.className = 'carte';
+  dessinerPlaces();
+}
+async function validerMission() {
+  if (!mission || mission.poses.length !== 12) return;
+  dire('s-mission', 'Vérification de ton secours…', 'wait');
+  try { await mission.m.valider(mission.poses.map((i) => mission.cartes[i])); }
+  catch (e) {
+    if (e && e.name === 'MotsRefuses') {
+      // Tout repart de zéro : aucune carte ne reste posée, rien ne dit laquelle était à sa place.
+      noter('[mission] ordre refuse');
+      for (let i = 1; i <= 12; i++) { const b = $('m-carte-' + i); b.disabled = false; b.className = 'carte'; }
+      mission.poses = [];
+      dessinerPlaces();
+      dire('s-mission', 'Ce n\'est pas le bon ordre. Regarde ton papier, puis recommence.', 'ko');
+      return;
+    }
+    noter('[mission] echec : ' + detail(e));
+    dire('s-mission', 'Ton secours n\'a pas pu être enregistré. ' + expliquer(e), 'ko');
+    return;
+  }
+  noter('[mission] secours fait');
+  quitterMission();
+  await afficher('Mission réussie : tes 12 mots ouvrent bien ton coffre. Garde ton papier en lieu sûr.', 'ok');
+}
+async function annulerMission() { quitterMission(); await afficher(); }
+
 async function copier() {
   try { await navigator.clipboard.writeText(texteResultat()); dire('s-resultat', 'Copié.', 'ok'); }
   catch (_) { $('resultat').select(); dire('s-resultat', 'Sélectionné : copie-le à la main.', 'wait'); }
@@ -293,6 +387,14 @@ else {
   $('b-ouvrir').addEventListener('click', seul(ouvrir));
   $('b-oublier').addEventListener('click', seul(oublier));
   $('b-jeu').addEventListener('click', seul(entrerDansLeJeu));
+  $('b-mission').addEventListener('click', ouvrirMission);
+  $('b-m-voir').addEventListener('click', seul(voirMots));
+  $('b-m-note').addEventListener('click', lancerCartes);
+  $('b-m-revoir').addEventListener('click', montrerMots);
+  $('b-m-retirer').addEventListener('click', retirer);
+  $('b-m-valider').addEventListener('click', seul(validerMission));
+  $('b-m-annuler').addEventListener('click', seul(annulerMission));
+  for (let i = 0; i < 12; i++) $('m-carte-' + (i + 1)).addEventListener('click', () => toucher(i));
   $('b-envoyer-code').addEventListener('click', seul(envoyerCode));
   $('b-valider-code').addEventListener('click', seul(validerLeCode));
   // Ouverte par un autre site, dans sa propre fenêtre : on n'écoute que les jeux enregistrés.

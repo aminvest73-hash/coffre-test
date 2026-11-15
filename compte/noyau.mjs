@@ -123,6 +123,16 @@ async function ouvrir(c, kekAcces, acces, role, plus) {
       if (!cle) refuser('OuvertureRefusee', 'coffre referme');
       return K.faireConnexionJeu(cle, { service, jeu, adresse: c.adresse, defi, maintenant });
     },
+    // Attester le secours : la clé du wallet signe « l'accès de secours en place a servi à une vraie restauration ».
+    // `contexte` : { service, environnement, projet, compte, defi, expire, avant: { version, empreinte } }.
+    // La page construit elle-même ce qu'elle signe ; l'appelant n'appelle ceci qu'après la restauration réussie.
+    async attesterSecours(contexte) {
+      if (!cle) refuser('OuvertureRefusee', 'coffre referme');
+      const contenu = K.contenuGestion(Object.assign({}, contexte, { action: 'attester-secours', coffre: c.id, adresse: c.adresse,
+        secours: { acces: await K.empreinteAccesSecours(c), declaration: 'fait' } }));
+      const message = K.messageHorsChaine(K.deBase58(c.adresse, 32), contenu);
+      return { message, signature: await K.signer(cle, message) };
+    },
     fermer() { dek = null; cle = null; },
   };
 }

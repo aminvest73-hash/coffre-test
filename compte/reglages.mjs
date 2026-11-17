@@ -7,4 +7,7 @@ export const REGLAGES = {
   projet: 'essai',
   langue: 'fr',
   jeux: {"https://raw.githack.com":"Faux jeu (essai)","https://staging.monstermine.io":"MonsterMine (essai)"},
+  identite: 'email',
+  portes: ["google"],
+  adresseIdentite: "https://coffre-serveur-test.aminvest73.workers.dev",
 };

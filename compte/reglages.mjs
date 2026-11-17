@@ -1,6 +1,6 @@
 // Ce que la page sait d'elle-même. Rien ici ne vient du serveur. Fichier écrit par assembler.mjs.
 export const REGLAGES = {
-  version: 'en ligne 8',
+  version: 'en ligne 9',
   api: "https://coffre-serveur-test.aminvest73.workers.dev",
   rpId: "aminvest73-hash.github.io",
   environnement: 'essai',
@@ -8,6 +8,7 @@ export const REGLAGES = {
   langue: 'fr',
   jeux: {"https://raw.githack.com":"Faux jeu (essai)","https://staging.monstermine.io":"MonsterMine (essai)","https://www.monstermine.io":"MonsterMine"},
   identite: 'email',
+  recuperation: 'email',
   portes: ["google"],
   adresseIdentite: "https://coffre-serveur-test.aminvest73.workers.dev",
   // Les fiches d'opérations des jeux : tenues ici, jamais reçues du jeu (operation.mjs).

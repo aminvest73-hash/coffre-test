@@ -11,6 +11,8 @@
 //              `systeme: 'Windows'` si l'appareil est sous Windows (la forme d'une demande de clé en dépend) ;
 //              `portes: ['google', …]` si le joueur peut dire qui il est par une autre porte que l'e-mail, et
 //              `adresseIdentite`, l'origine où le service sert ces portes ;
+//              `emetteur` : l'origine du service, quand des jeux reçoivent de lui une identité (à défaut :
+//              `adresseIdentite`). C'est elle que la clé du wallet engage dans la preuve de connexion version 2 ;
 //   rangement.lire() / garder(objet) / effacer()   -> un petit rangement propre à CETTE fenêtre (le stockage de session
 //              de la page), pour la tentative en cours par une autre porte. Sans lui, aucune porte n'est proposée.
 //              (et `horloge`, pour les essais seulement : l'heure de l'appareil, en secondes)
@@ -20,6 +22,7 @@
 
 import * as K from './contrat.mjs';
 import * as N from './noyau.mjs';
+import * as O from './operation.mjs';
 
 const te = new TextEncoder();
 const refuser = (nom, detail) => { throw new K.Refus(nom, detail); };
@@ -201,17 +204,60 @@ export function client({ api, appareil, stock, reglages, noter, rangement }) {
   // Un retour dont la page ne veut pas (un coffre est déjà sur l'appareil) : la tentative est seulement effacée.
   function oublierPorte() { try { if (rangement) rangement.effacer(); } catch (_) { /* rien */ } }
 
+  // ---------- L'identité rendue au jeu. Quand la demande d'un jeu porte un contexte d'identité (`identite` :
+  // { client, nonce, e, adresseRequise }, tel que lien-jeu.mjs l'a lu), la clé du wallet signe la preuve de connexion
+  // VERSION 2, qui engage ce contexte ; puis la page demande au service la remise : un code à usage unique, qu'elle
+  // rend au jeu avec la preuve. C'est le serveur du jeu qui l'échangera contre l'identité signée.
+  // Le jeton de continuation : rendu par le service à la création d'un coffre (quand le joueur venait de dire qui il
+  // est), ou à la connexion quand il vient de le dire et ouvre un coffre qui existait. Il ne sert qu'à UNE remise,
+  // pour ce wallet, et ne quitte pas la mémoire de la page. Sans lui, la remise se fait quand même : le jeu saura
+  // seulement quel wallet et quel joueur, pas par quelle porte ni avec quelle adresse.
+  let continuation = null;   // { jeton, adresse }
+  const retenirContinuation = (jeton, adresse) => { if (typeof jeton === 'string' && FORME_43.test(jeton)) continuation = { jeton, adresse }; };
+  // Ce que la clé du wallet engagera, à partir de la demande du jeu et de ce que la page sait d'elle-même.
+  function contexteIdentite(i) {
+    const emetteur = typeof reglages.emetteur === 'string' ? reglages.emetteur : reglages.adresseIdentite;
+    if (!i || typeof i !== 'object' || typeof emetteur !== 'string') refuser('IdentiteEteinte');
+    return { emetteur, client: i.client, nonce: i.nonce, e: i.e, intention: 'identite', portee: i.adresseRequise === true ? 'identite-adresse' : 'identite' };
+  }
+  // Demander la remise. Les refus du service remontent sous leur nom. Celui que la page doit savoir traiter :
+  // `AdresseRequise` (ce jeu exige une adresse qui vient d'être prouvée : faire confirmer son adresse au joueur, par
+  // Google ou par un code, puis recommencer). Une continuation que le service ne reconnaît plus est oubliée, et la
+  // même preuve est représentée une fois sans elle (rien n'avait été écrit).
+  async function remettre(preuve, adresse) {
+    const corps = { message: K.b64u(preuve.message), signature: K.b64u(preuve.signature) };
+    const suite = continuation && continuation.adresse === adresse ? continuation.jeton : null;
+    let r;
+    try { r = await api('/jeu/remise', suite ? Object.assign({ continuation: suite }, corps) : corps); }
+    catch (e) {
+      if (!suite || !e || e.name !== 'ContinuationRefusee') throw e;
+      continuation = null;
+      dire('[jeu] continuation refusee : remise demandee sans elle');
+      r = await api('/jeu/remise', corps);
+    }
+    if (suite) continuation = null;   // elle a servi
+    if (!r || typeof r.code !== 'string' || !FORME_43.test(r.code)) refuser('RemiseJeuRefusee');
+    dire('[jeu] remise obtenue pour le jeu');
+    return r.code;
+  }
+
   // ---------- Créer : réserver, créer la passkey, fabriquer le coffre, le ranger sur l'appareil, l'envoyer.
   // `options.connexion`, s'il est donné : { jeu, defi }. La preuve de connexion au jeu est alors signée dans le
   // même geste, et rendue seulement si le coffre est bien gardé par le serveur.
+  // Avec `options.connexion.identite` (le contexte d'identité de la demande du jeu), c'est la preuve version 2 qui est
+  // signée ; une fois le coffre gardé, la remise est demandée, et le résultat porte `preuve` ET `remise`. Si la remise
+  // est refusée, le coffre existe quand même : le résultat porte `remiseRefusee` (le nom du refus, par exemple
+  // `AdresseRequise`), sans preuve ni remise : rien ne part au jeu, et la page reprendra par `prouver`.
   // `options.encorePermis`, s'il est donné : une fonction que la page tient à jour (par exemple « le jeu qui attend
   // ne demande pas un coffre existant »). Le geste du joueur prend du temps, et ce qui autorisait la création au
   // départ peut ne plus être vrai à la fin : la question est reposée après le geste, juste avant de fabriquer le
-  // coffre, puis juste avant de le ranger. Si la réponse n'est pas oui : `CreationRetiree`, rien n'est fabriqué ni
-  // rangé, rien ne part au serveur, la réservation reste. Limite dite : la clé d'accès que l'appareil vient de
-  // créer peut y rester, sans coffre ; elle ne sert à rien.
+  // coffre, puis juste avant de le ranger. Si la réponse n'est pas oui : `CreationRetiree`, rien n'est conservé ni
+  // envoyé : aucune fiche sur l'appareil, rien au serveur, la réservation reste. Au second contrôle, une paire de
+  // clés a déjà pu être calculée en mémoire : elle est abandonnée là, jamais rangée. Limite dite : la clé d'accès
+  // que l'appareil vient de créer peut y rester, sans coffre ; elle ne sert à rien.
   async function creer(nom, options) {
     const connexion = options && options.connexion;
+    const pourIdentite = connexion && connexion.identite ? contexteIdentite(connexion.identite) : null;
     const permis = () => { if (options && typeof options.encorePermis === 'function' && options.encorePermis() !== true) refuser('CreationRetiree'); };
     if (await stock.lire()) refuser('DejaUnCoffre');
     let r = reservation;
@@ -251,7 +297,7 @@ export function client({ api, appareil, stock, reglages, noter, rangement }) {
       fait = await N.creer({ sortiePrf: sortie, passkey: { cred: octets(c.rawId), alg, cle }, langue: reglages.langue, contexte: {
         service: reglages.origine, environnement: reglages.environnement, projet: reglages.projet,
         compte: r.compte, inscription: r.inscription, defi: r.defi, expire: r.expire },
-        connexion: connexion ? { jeu: connexion.jeu, defi: connexion.defi, maintenant: maintenant() } : undefined });
+        connexion: connexion ? Object.assign({ jeu: connexion.jeu, defi: connexion.defi, maintenant: maintenant() }, pourIdentite ? { identite: pourIdentite } : {}) : undefined });
     } finally { sortie.fill(0); }
     const envoi = { inscription: r.inscription, passkey: pourCreation(c), etat: new TextDecoder().decode(fait.etat),
       message: K.b64u(fait.message), signature: K.b64u(fait.signature) };
@@ -265,7 +311,12 @@ export function client({ api, appareil, stock, reglages, noter, rangement }) {
     dire('[creer] coffre fabrique et range sur l\'appareil | adresse ' + fait.coffre.adresse + ' | cle du coffre des la creation ' + (direct ? 'oui' : 'non'));
     const resultat = await envoyer(fiche);
     // Un coffre qui n'existe que sur cet appareil n'entre pas dans un jeu : la preuve n'est rendue que s'il est gardé.
-    if (fait.preuve && resultat.garde) resultat.preuve = fait.preuve;
+    if (fait.preuve && resultat.garde && !pourIdentite) resultat.preuve = fait.preuve;
+    if (fait.preuve && resultat.garde && pourIdentite) {
+      // La preuve version 2 ne part jamais sans son code de remise.
+      try { resultat.remise = await remettre(fait.preuve, resultat.adresse); resultat.preuve = fait.preuve; }
+      catch (e) { resultat.remiseRefusee = (e && typeof e.name === 'string' && e.name) || 'Erreur'; dire('[jeu] remise refusee apres la creation : ' + resultat.remiseRefusee); }
+    }
     return resultat;
   }
 
@@ -294,6 +345,7 @@ export function client({ api, appareil, stock, reglages, noter, rangement }) {
       return { adresse: fiche.coffre.adresse, garde: false, raison: e && e.name };
     }
     if (accuse.empreinte !== fiche.empreinte || accuse.adresse !== fiche.coffre.adresse || accuse.coffre !== fiche.coffre.id || accuse.version !== fiche.version) refuser('AccuseRefuse');
+    if (!ajout) retenirContinuation(accuse.continuation, fiche.coffre.adresse);
     const gardee = Object.assign({}, fiche, { garde: true });
     delete gardee.envoi; delete gardee.vers; delete gardee.incertain;
     await stock.remplacer(fiche, gardee);
@@ -309,14 +361,18 @@ export function client({ api, appareil, stock, reglages, noter, rangement }) {
   }
 
   // ---------- Se connecter : un geste. L'assertion part au serveur, la sortie qui ouvre reste ici.
-  async function connecter() {
+  // `options.pourJeu` : la connexion sert à entrer dans un jeu qui attend une identité. Si le joueur vient de dire
+  // qui il est dans cette fenêtre (une preuve d'identité est en mémoire), elle accompagne la demande : le service
+  // rend alors, s'il rapproche cette identité de ce compte, un jeton de continuation. La preuve a servi à cela.
+  async function connecter(options) {
     const fiche = await stock.lire();
     const d = await api('/connexion/defi', {});
     const { a, sortie } = await demander(K.deB64u(d.defi, 32), fiche ? fiche.cred : null, 'connecter', fiche ? aidePour(fiche) : null);
     try {
       const corps = pourConnexion(a);
+      const fraiche = options && options.pourJeu === true && preuveIdentite ? preuveIdentite : null;
       let rendu;
-      try { rendu = await api('/connexion', { defi: d.defi, passkey: corps }); }
+      try { rendu = await api('/connexion', fraiche ? { defi: d.defi, passkey: corps, identite: fraiche } : { defi: d.defi, passkey: corps }); }
       catch (e) {
         // Une clé créée après une récupération, encore en attente d'ajout, et que le serveur ne connaît pas : l'ajout
         // n'a jamais abouti. La copie de cet appareil est une version que le serveur n'a pas : elle est effacée.
@@ -327,7 +383,12 @@ export function client({ api, appareil, stock, reglages, noter, rangement }) {
         }
         throw e;
       }
-      return await accepter(rendu, { cred: corps.id, compte: corps.response.userHandle, sortie, fiche, distante: a.authenticatorAttachment === 'cross-platform', synchro: synchronisable(a) });
+      const session = await accepter(rendu, { cred: corps.id, compte: corps.response.userHandle, sortie, fiche, distante: a.authenticatorAttachment === 'cross-platform', synchro: synchronisable(a) });
+      if (fraiche && rendu && typeof rendu.continuation === 'string' && FORME_43.test(rendu.continuation)) {
+        retenirContinuation(rendu.continuation, session.adresse);
+        preuveIdentite = null;   // elle a servi à cette continuation
+      }
+      return session;
     } finally { sortie.fill(0); }
   }
 
@@ -426,9 +487,21 @@ export function client({ api, appareil, stock, reglages, noter, rangement }) {
 
   // ---------- Entrer dans un jeu avec un coffre existant : l'ouvrir, puis signer la preuve de connexion.
   // Le serveur d'abord (il rend la dernière version du coffre) ; s'il ne répond pas, la copie de l'appareil suffit.
-  async function prouver({ jeu, defi }) {
+  // Avec `identite` (le contexte d'identité de la demande du jeu) : la preuve est en version 2, la remise est demandée
+  // au service, et le résultat est { adresse, preuve, remise }. Ici, pas de repli sur la copie de l'appareil : la
+  // remise demande le service. Un refus de la remise remonte sous son nom (`AdresseRequise`, `RemiseDejaFaite`…) :
+  // rien n'est alors rendu, et rien ne doit partir au jeu.
+  async function prouver({ jeu, defi, identite }) {
     const fiche = await stock.lire();
     if (fiche && !fiche.garde) refuser('NonGarde');
+    if (identite) {
+      const contexte = contexteIdentite(identite);
+      const ouverte = await connecter({ pourJeu: true });
+      try {
+        const preuve = await ouverte.prouverConnexion2(Object.assign({ service: reglages.origine, jeu, defi, maintenant: maintenant() }, contexte));
+        return { adresse: ouverte.adresse, preuve, remise: await remettre(preuve, ouverte.adresse) };
+      } finally { ouverte.fermer(); }
+    }
     let session;
     try { session = await connecter(); }
     catch (e) {
@@ -439,6 +512,43 @@ export function client({ api, appareil, stock, reglages, noter, rangement }) {
     try {
       const preuve = await session.prouverConnexion({ service: reglages.origine, jeu, defi, maintenant: maintenant() });
       return { adresse: session.adresse, preuve };
+    } finally { session.fermer(); }
+  }
+
+  // ---------- Signer une opération demandée par un jeu. `octets` : ce que le jeu a envoyé (le message, ou, pour une
+  // opération nommée, la transaction partiellement signée) ; `lecture` : le texte unique du jugement que la page a
+  // montré au joueur (`cle` de `lireDemande`) ; `adresse` : le wallet que le jeu attend ; `contexte` : voir
+  // `lireDemande` (rien, { jeu, fiche }, ou { jeu, fiche, operation, version }). Les octets sont copiés puis rejugés
+  // ici avant le geste, et le coffre ouvert les rejuge encore juste avant de signer (noyau) : si le jugement n'est
+  // pas exactement celui montré, rien n'est signé (`OperationChangee`).
+  // Un seul geste : la connexion (le serveur d'abord ; s'il ne répond pas, la copie de l'appareil). La session est
+  // refermée aussitôt. Rien n'est envoyé au réseau d'ici : c'est le jeu qui diffuse.
+  // `encoreValide`, s'il est donné : une fonction que la page tient à jour (« cette demande du jeu est-elle encore
+  // celle qui vit, ni expirée, ni retirée, ni remplacée ? »). Le geste peut durer des minutes : elle est appelée
+  // une fois, après l'ouverture du coffre et juste avant la signature (dans le coffre ouvert, noyau.mjs). Si elle
+  // ne rend pas exactement `true` : `OperationExpiree`, rien n'est signé. La page n'a alors rien à rendre au jeu
+  // que son refus « expiree ».
+  async function signerOperation({ octets, lecture, adresse, contexte, encoreValide }) {
+    const fiche = await stock.lire();
+    if (!fiche) refuser('PasDeCoffre');
+    if (!fiche.garde) refuser('NonGarde');
+    if (!(octets instanceof Uint8Array) || typeof lecture !== 'string') refuser('OperationRefusee', 'demande');
+    if (encoreValide !== undefined && typeof encoreValide !== 'function') refuser('OperationRefusee', 'encoreValide');
+    if (typeof adresse !== 'string' || fiche.coffre.adresse !== adresse) refuser('AutreWallet');
+    const copie = Uint8Array.from(octets);   // nos propres octets : ce qui sera signé ne peut plus changer d'ailleurs
+    if ((await O.lireDemande(copie, { wallet: adresse, contexte })).cle !== lecture) refuser('OperationChangee');
+    let session;
+    try { session = await connecter(); }
+    catch (e) {
+      if (!['ReseauCoupe', 'Indisponible'].includes(e && e.name)) throw e;
+      dire('[operation] serveur injoignable : ouverture de la copie de cet appareil');
+      session = await ouvrirLocal();
+    }
+    try {
+      if (session.adresse !== adresse) refuser('AutreWallet');
+      const signature = await session.signerOperation(copie, lecture, contexte, encoreValide);
+      dire('[operation] signee par le coffre | wallet ' + session.adresse);
+      return { adresse: session.adresse, signature };
     } finally { session.fermer(); }
   }
 
@@ -837,7 +947,7 @@ export function client({ api, appareil, stock, reglages, noter, rangement }) {
   // Abandonner une récupération en cours : ce qui était en mémoire est effacé. Rien n'était sur l'appareil.
   function abandonner() { oublierRetrouve(); defiLibre = null; if (remise) { remise.mots.fill(''); remise = null; } }
 
-  return { creer, renvoyer, connecter, ouvrirLocal, accepter, prouver, demanderCode, validerCode, mission, retrouver, garder, abandonner, ajouterCetAppareil, reglerAdresse, reglageEnAttente, reprendreReglage,
+  return { creer, renvoyer, connecter, ouvrirLocal, accepter, prouver, signerOperation, demanderCode, validerCode, mission, retrouver, garder, abandonner, ajouterCetAppareil, reglerAdresse, reglageEnAttente, reprendreReglage,
     partirParPorte, revenirDePorte, oublierPorte };
 }
 

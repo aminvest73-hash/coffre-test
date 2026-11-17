@@ -5,11 +5,16 @@
 //   import * as contrat from './contrat.mjs';
 //   const connexion = connexionServeurJeu({ contrat, service: 'https://…', jeu: 'https://…', stockage });
 //
-//   1. Le joueur clique « Se connecter ». Le serveur tire un défi pour CETTE tentative (l'identifiant de la session
-//      d'avant connexion, que le serveur a lui-même donné à ce navigateur) :
-//        const { defi } = await connexion.nouveauDefi(tentative);            // connexion par le wallet seul
-//        const { defi } = await connexion.nouveauDefi(tentative, { compte });  // pour un compte déjà reconnu
-//   2. La page du jeu ouvre la fenêtre du coffre avec ce défi (coffre-jeu.mjs), puis renvoie la réponse au serveur.
+//   1. Le joueur clique « Se connecter ». La page du jeu ouvre la fenêtre du coffre dans le clic, puis demande au
+//      serveur un défi pour CETTE tentative (l'identifiant de la session d'avant connexion, que le serveur a
+//      lui-même donné à ce navigateur) :
+//        const { defi, vie } = await connexion.nouveauDefi(tentative);            // connexion par le wallet seul
+//        const { defi, vie } = await connexion.nouveauDefi(tentative, { compte });  // pour un compte déjà reconnu
+//      Le serveur rend `defi` ET `vie` à la page (ce qu'il reste à vivre au défi, en millisecondes) : elle les passe
+//      tels quels à la fenêtre du coffre, qui sait ainsi quand le défi meurt. Un défi se tire au moment du toucher,
+//      pas à l'avance, et ne se renouvelle jamais pendant qu'une fenêtre est ouverte pour lui : `nouveauDefi` pour
+//      la même tentative REMPLACE le défi précédent, et la preuve que le joueur est en train de signer serait refusée.
+//   2. La fenêtre du coffre reçoit ce défi (coffre-jeu.mjs), puis la page renvoie la réponse au serveur.
 //   3. Le serveur conclut. Alors seulement il ouvre la session du joueur :
 //        const { adresse } = await connexion.conclure(tentative, reponse, { walletAttendu });
 //      Ou, pour un compte que le jeu a déjà reconnu lui-même, avec le lien « compte → wallet » de sa base :
@@ -76,7 +81,10 @@ export function connexionServeurJeu({ contrat, service, jeu, stockage, horloge, 
     if (compte !== undefined && compte !== null && (typeof compte !== 'string' || !compte)) refuser('compte');
     const defi = contrat.b64u(crypto.getRandomValues(new Uint8Array(32)));
     await stockage.poser({ tentative, defi, duree: vie, contexte: compte ? contexteDe(compte) : null });
-    return { defi, duree: vie };
+    // `duree` : la vie du défi en secondes, comme elle est rangée. `vie` : la même en millisecondes, à passer telle
+    // quelle à la page puis à la fenêtre du coffre (coffre-jeu.mjs). Le défi vient d'être posé : il lui reste un
+    // peu moins que cela quand la réponse arrive à la page ; la fenêtre du coffre retire une marge pour cela.
+    return { defi, duree: vie, vie: vie * 1000 };
   }
 
   async function verifierPuisConsommer(tentative, reponse, contexte, walletAttendu) {
@@ -349,13 +357,223 @@ export function connexionWalletServeurJeu({ contrat, jeu, stockage, duree, resea
   return { preparer, conclureConnexion, conclureAssociation };
 }
 
+// ---------- L'identité rendue au jeu : qui est le joueur, pas seulement quel wallet il tient.
+//
+// Avec ce parcours, le serveur du jeu apprend, par ses propres vérifications : un identifiant stable du joueur pour
+// CE jeu (`sub`, à ranger avec `iss` à côté de son numéro de compte), le wallet prouvé dans cette même tentative, et,
+// si elle vient d'être prouvée, une adresse e-mail avec la façon dont elle l'a été. Aucune dépendance ici : la
+// vérification de la signature de l'identité se fait avec la bibliothèque JOSE du studio, qu'il passe lui-même
+// (voir `verificateurAssertion`).
+//
+//   const identite = identiteServeurJeu({ contrat, service: 'https://…page du coffre', emetteur: 'https://…service',
+//     client: 'mon-jeu', jeu: 'https://…mon jeu', stockage, validerAssertion });
+//
+//   1. Au toucher du joueur, la page ouvre la fenêtre du coffre puis demande au serveur la tentative :
+//        const { defi, vie, identite: contexte } = await identite.preparer(tentative, { adresseRequise: true });
+//      Le serveur garde le vérifieur ; il rend à la page le défi, sa vie, et le contexte à passer à la fenêtre
+//      (coffre-jeu.mjs : connexionCoffre({ defi: () => ({ defi, vie, identite: contexte }), identite: true })).
+//      Rien ne se renouvelle pendant la tentative.
+//   2. La page renvoie la réponse de la fenêtre : { adresse, message, signature, remise }.
+//   3. Le serveur, DANS CET ORDRE :
+//        const a = await identite.echanger(tentative, reponse);
+//           a. vérifie la preuve SANS RIEN CONSOMMER NI ÉCRIRE (c'est aussi `identite.verifier`) ;
+//           b. échange le code auprès du service, avec son vérifieur ;
+//           c. valide l'identité signée, et la compare à la preuve : même `nonce`, même wallet, même défi ;
+//        const r = await identite.conclure(tentative, a, { compte: (a) => … });
+//           d. alors seulement, dans UNE transaction : consomme sa tentative et écrit son lien.
+//      Si l'échange a réussi et que la suite échoue (réponse perdue, arrêt) : pas de rejeu. Une nouvelle tentative.
+//
+// Ce que `conclure` fait de l'identité :
+//   - `(iss, sub)` déjà lié à un compte : c'est ce compte, et le wallet doit être celui du lien (`AutreWallet` sinon) ;
+//   - inconnu, et la politique du jeu exige une adresse prouvée (`adresseExigee`, vrai par défaut) qui n'est pas là :
+//     `AdresseRequise`, aucune écriture. Le jeu rouvre alors une tentative qui la demande, ou propose sa connexion
+//     habituelle. JAMAIS un compte neuf pour un inconnu sans adresse, même si le service a déjà délivré un code ;
+//   - inconnu, avec ce qu'il faut : `options.compte(a)` dit à quel compte le lier. C'est le studio qui décide (un
+//     compte neuf ; ou un refus à lui, par exemple « ce compte existe, connecte-toi d'abord » quand l'adresse prouvée
+//     est déjà celle d'un compte : rien n'est alors rattaché). Sans cette fonction : `CompteInconnu`.
+// Une identité attendue qui manque n'est jamais remplacée par une simple preuve du wallet : c'est un autre mode
+// (connexionServeurJeu), que le serveur choisit lui-même, pour un compte déjà lié.
+//
+// Le stockage, pour ces tentatives (quatre fonctions de plus ; c'est LUI qui lit l'heure) :
+//   poserIdentite({ tentative, defi, duree, champs })   garde la tentative (une seule à la fois par identifiant).
+//   lireIdentite(tentative)                rend { defi, champs } si elle existe, n'a pas servi et n'a pas expiré.
+//   lienIdentite({ iss, sub })             rend { compte, adresse } si ce joueur est déjà lié, sinon rien.
+//   conclureIdentite({ tentative, defi, avant, lien })   UNE transaction : la tentative est consommée si elle est là,
+//                                          avec ce défi, pas expirée à l'instant d'écrire, et si `avant` (la fin de
+//                                          validité de la preuve) n'est pas franchie ; avec `lien` ({ iss, sub, compte,
+//                                          adresse }), le lien est écrit dans la même transaction, et s'il ne peut pas
+//                                          l'être (ce joueur, ce compte ou ce wallet est déjà lié autrement) RIEN
+//                                          n'est écrit, la tentative comprise. Rend { fait, ecrit }.
+
+export const DUREE_TENTATIVE_IDENTITE = 300;   // secondes
+export const TYPE_ASSERTION = 'coffre-identite+jwt';
+const SUB = /^[A-Za-z0-9_-]{16,128}$/;
+const PORTE = /^[a-z][a-z0-9]{1,15}$/;
+const PREUVE_ADRESSE = /^(code|[a-z][a-z0-9]{1,15}-autorite)$/;
+const REMISE = /^[A-Za-z0-9_-]{43}$/;
+
+// Ce qui vérifie la signature de l'identité, avec la bibliothèque JOSE du studio (`jose`, version 6). `cles` : ce que
+// `jose.jwtVerify` accepte pour trouver la clé publique, par exemple
+//   jose.createRemoteJWKSet(new URL(emetteur + '/.well-known/jwks.json'))
+// (l'adresse des clés est FIXE, sur l'origine du service : jamais une adresse lue dans le jeton). L'algorithme est
+// fixé (ES256), comme l'émetteur, le destinataire et le type du jeton. Rend une fonction : jeton -> ses champs.
+export function verificateurAssertion({ jose, emetteur, client, cles, horloge }) {
+  if (!jose || typeof jose.jwtVerify !== 'function') throw new Error('verificateurAssertion : la bibliotheque jose est attendue');
+  return async (jeton) => {
+    const options = { algorithms: ['ES256'], issuer: emetteur, audience: client, typ: TYPE_ASSERTION, clockTolerance: 5,
+      requiredClaims: ['iss', 'aud', 'sub', 'iat', 'exp', 'jti', 'nonce', 'wallet', 'defi', 'porte'] };
+    if (horloge) options.currentDate = new Date(horloge() * 1000);
+    return (await jose.jwtVerify(jeton, cles, options)).payload;
+  };
+}
+
+// `appeler`, s'il est donné, remplace l'appel au réseau : ({ adresse, corps, entetes }) -> { statut, corps } (un objet).
+// Par défaut : `fetch`, en POST, sans suivre de redirection. `admission` : sur un service d'essai gardé par un code,
+// ce code (il part dans l'en-tête d'autorisation ; ne jamais l'écrire dans une page).
+export function identiteServeurJeu({ contrat, service, emetteur, client, jeu, stockage, validerAssertion, appeler, admission, adresseExigee, horloge, duree }) {
+  const maintenant = horloge || (() => Math.floor(Date.now() / 1000));
+  const vie = duree || DUREE_TENTATIVE_IDENTITE;
+  const exigee = adresseExigee !== false;
+  const refuser = (detail) => { throw new contrat.Refus('ConnexionRefusee', detail); };
+  const tirer = () => contrat.b64u(crypto.getRandomValues(new Uint8Array(32)));
+  const poster = appeler || (async ({ adresse, corps, entetes }) => {
+    const r = await fetch(adresse, { method: 'POST', headers: entetes, body: JSON.stringify(corps), redirect: 'error' });
+    let objet = null;
+    try { objet = await r.json(); } catch (_) { /* pas du JSON : traité comme un refus */ }
+    return { statut: r.status, corps: objet };
+  });
+
+  // Ouvrir la tentative : un défi, un `nonce`, un vérifieur (gardé ici) et son défi S256. `adresseRequise` : le jeu
+  // exige, pour cette tentative, une adresse e-mail qui vient d'être prouvée.
+  async function preparer(tentative, options) {
+    if (typeof tentative !== 'string' || !TENTATIVE.test(tentative)) refuser('tentative');
+    const requise = !!(options && options.adresseRequise === true);
+    const defi = tirer(), nonce = tirer(), v = tirer(), e = await contrat.defiS256(v);
+    await stockage.poserIdentite({ tentative, defi, duree: vie, champs: JSON.stringify({ nonce, v, e, portee: requise ? 'identite-adresse' : 'identite' }) });
+    return { defi, duree: vie, vie: vie * 1000, identite: requise ? { client, e, nonce, adresseRequise: true } : { client, e, nonce } };
+  }
+
+  async function lire(tentative) {
+    if (typeof tentative !== 'string' || !TENTATIVE.test(tentative)) refuser('tentative');
+    const t = await stockage.lireIdentite(tentative);
+    if (!t || typeof t.defi !== 'string') refuser('defi');
+    let c = null;
+    try { c = JSON.parse(t.champs); } catch (_) { /* refusé ci-dessous */ }
+    if (!c || typeof c.nonce !== 'string' || typeof c.v !== 'string' || typeof c.e !== 'string' || typeof c.portee !== 'string') refuser('tentative illisible');
+    return { defi: t.defi, nonce: c.nonce, v: c.v, e: c.e, portee: c.portee };
+  }
+
+  // Vérifier la preuve, et rien d'autre : aucune écriture, rien de consommé, aucun appel au réseau.
+  async function verifier(tentative, reponse) {
+    if (!reponse || typeof reponse !== 'object' || typeof reponse.message !== 'string' || !TEXTE.test(reponse.message)
+      || typeof reponse.signature !== 'string' || !TEXTE.test(reponse.signature)) refuser('forme');
+    const t = await lire(tentative);
+    const p = await contrat.verifierConnexionJeu2({ message: contrat.deB64u(reponse.message), signature: contrat.deB64u(reponse.signature, 64) },
+      { service, emetteur, client, jeu, defi: t.defi, nonce: t.nonce, e: t.e, intention: 'identite', portee: t.portee, maintenant: maintenant() });
+    if (reponse.adresse !== undefined && reponse.adresse !== p.adresse) refuser('adresse');
+    return { adresse: p.adresse, expire: p.expire, defi: p.defi, tentative: t };
+  }
+
+  // Vérifier, échanger le code, valider l'identité. Rien n'est consommé ni écrit CHEZ LE JEU ; chez le service, le
+  // code est consommé par l'échange. Rend ce que `conclure` attend.
+  async function echanger(tentative, reponse) {
+    const p = await verifier(tentative, reponse);
+    if (typeof reponse.remise !== 'string' || !REMISE.test(reponse.remise)) throw new contrat.Refus('IdentiteAbsente');
+    const entetes = { 'content-type': 'application/json' };
+    if (typeof admission === 'string' && admission) entetes.authorization = 'Bearer ' + admission;
+    let r;
+    try { r = await poster({ adresse: emetteur + '/jeu/echanger', corps: { client_id: client, code: reponse.remise, verifieur: p.tentative.v }, entetes }); }
+    catch (_) { throw new contrat.Refus('ServiceInjoignable'); }
+    if (!r || r.statut !== 200 || !r.corps || typeof r.corps.assertion !== 'string' || r.corps.assertion.length > 4000) {
+      throw new contrat.Refus('EchangeRefuse', r && r.corps && typeof r.corps.refus === 'string' ? r.corps.refus.replace(/[^A-Za-z]/g, '').slice(0, 40) : undefined);
+    }
+    let a;
+    try { a = await validerAssertion(r.corps.assertion); } catch (_) { throw new contrat.Refus('AssertionRefusee', 'signature ou champs'); }
+    const non = (detail) => { throw new contrat.Refus('AssertionRefusee', detail); };
+    if (!a || typeof a !== 'object') non('forme');
+    // Ce que la bibliothèque a déjà vérifié est rejugé ici, avec ce que CE serveur sait : il ne se fie pas au seul appelant.
+    if (a.iss !== emetteur) non('emetteur');
+    if (a.aud !== client) non('destinataire');
+    if (!Number.isSafeInteger(a.exp) || !(a.exp > maintenant() - 5)) non('echeance');
+    if (typeof a.sub !== 'string' || !SUB.test(a.sub)) non('sub');
+    // Les trois liens à la preuve : la même tentative, le même wallet, le même défi.
+    if (a.nonce !== p.tentative.nonce) non('nonce');
+    if (a.wallet !== p.adresse) non('wallet');
+    if (a.defi !== p.defi) non('defi');
+    if (a.porte !== 'aucune' && (typeof a.porte !== 'string' || !PORTE.test(a.porte))) non('porte');
+    const avecAdresse = a.email !== undefined || a.email_preuve !== undefined;
+    if (avecAdresse && (typeof a.email !== 'string' || !a.email || a.email.length > 254 || typeof a.email_preuve !== 'string' || !PREUVE_ADRESSE.test(a.email_preuve))) non('adresse');
+    // La tentative exigeait une adresse : sans elle, rien ne se conclut (le service ne l'aurait pas remise sans).
+    if (p.tentative.portee === 'identite-adresse' && !avecAdresse) throw new contrat.Refus('AdresseRequise');
+    return Object.freeze(Object.assign({ tentative, defiTentative: p.tentative.defi, avant: p.expire + contrat.TOLERANCE_HORLOGE, adresse: p.adresse, iss: a.iss, sub: a.sub, porte: a.porte },
+      avecAdresse ? { email: a.email, emailPreuve: a.email_preuve } : {}));
+  }
+
+  // La conclusion : une transaction. `a` vient de `echanger`, pour CETTE tentative.
+  async function conclure(tentative, a, options) {
+    if (!a || typeof a !== 'object' || a.tentative !== tentative || typeof a.iss !== 'string' || typeof a.sub !== 'string' || typeof a.adresse !== 'string') refuser('identite');
+    if (!(a.avant > maintenant())) refuser('heure');
+    const rendre = (compte, nouveau) => Object.assign({ compte, adresse: a.adresse, iss: a.iss, sub: a.sub, porte: a.porte, nouveau }, a.email !== undefined ? { email: a.email, emailPreuve: a.emailPreuve } : {});
+    const pourConnu = async (connu) => {
+      if (connu.adresse !== a.adresse) throw new contrat.Refus('AutreWallet');
+      const r = await stockage.conclureIdentite({ tentative, defi: a.defiTentative, avant: a.avant, lien: null });
+      if (!r || r.fait !== true) refuser('expire ou deja utilise');
+      return rendre(connu.compte, false);
+    };
+    const connu = await stockage.lienIdentite({ iss: a.iss, sub: a.sub });
+    if (connu) return pourConnu(connu);
+    // Un joueur que ce jeu ne connaît pas : jamais de compte sans l'adresse prouvée que sa politique exige.
+    if (exigee && a.email === undefined) throw new contrat.Refus('AdresseRequise');
+    if (!options || typeof options.compte !== 'function') throw new contrat.Refus('CompteInconnu');
+    const compte = await options.compte(a);
+    if (typeof compte !== 'string' || !compte) throw new contrat.Refus('CompteInconnu');
+    const r = await stockage.conclureIdentite({ tentative, defi: a.defiTentative, avant: a.avant, lien: { iss: a.iss, sub: a.sub, compte, adresse: a.adresse } });
+    if (r && r.fait === true) return rendre(compte, r.ecrit === true);
+    // Rien n'a été écrit. Un autre premier lien pour ce joueur a pu passer entre-temps (deux fenêtres ensemble) :
+    // s'il mène au même wallet, cette tentative se conclut pour le compte qu'il a lié.
+    const depuis = await stockage.lienIdentite({ iss: a.iss, sub: a.sub });
+    if (depuis) return pourConnu(depuis);
+    return refuser('expire, deja utilise, ou ce compte ou ce wallet est deja lie');
+  }
+
+  // Le joueur renonce : la tentative est retirée tout de suite, sans rien vérifier.
+  async function abandonner(tentative) {
+    if (typeof tentative !== 'string' || !TENTATIVE.test(tentative)) refuser('tentative');
+    const t = await stockage.lireIdentite(tentative);
+    if (!t || typeof t.defi !== 'string') return false;
+    const r = await stockage.conclureIdentite({ tentative, defi: t.defi, avant: SANS_ECHEANCE_DE_PREUVE, lien: null });
+    return !!r && r.fait === true;
+  }
+
+  return { preparer, verifier, echanger, conclure, abandonner };
+}
+
 // Un stockage en mémoire, pour les essais et le faux jeu. Un vrai serveur utilise sa base, et l'horloge de sa base.
 // `horloge` est une fonction, lue à l'instant de chaque opération (par défaut : l'heure de la machine).
 export function stockageEnMemoire(horloge) {
   const maintenant = horloge || (() => Math.floor(Date.now() / 1000));
   const defis = new Map();
   const wallets = new Map();
+  const identites = new Map();   // tentative -> { defi, champs, expire }
+  const liens = [];              // { iss, sub, compte, adresse } : un joueur, un compte, un wallet, chacun une seule fois
   return {
+    // Les tentatives d'identité, et le lien « joueur → compte et wallet » (identiteServeurJeu). Chaque fonction est
+    // d'un seul trait : rien ne s'y glisse.
+    async poserIdentite({ tentative, defi, duree, champs }) {
+      const t = maintenant();
+      for (const [cle, x] of identites) if (!(x.expire > t)) identites.delete(cle);
+      identites.set(tentative, { defi, champs, expire: t + duree });
+    },
+    async lireIdentite(tentative) { const x = identites.get(tentative); return x && x.expire > maintenant() ? { defi: x.defi, champs: x.champs } : null; },
+    async lienIdentite({ iss, sub }) { const l = liens.find((x) => x.iss === iss && x.sub === sub); return l ? { compte: l.compte, adresse: l.adresse } : null; },
+    async conclureIdentite({ tentative, defi, avant, lien }) {
+      const x = identites.get(tentative), t = maintenant();
+      if (!x || x.defi !== defi || !(x.expire > t) || !(avant > t)) return { fait: false, ecrit: false };
+      if (lien && liens.some((l) => (l.iss === lien.iss && l.sub === lien.sub) || l.compte === lien.compte || l.adresse === lien.adresse)) return { fait: false, ecrit: false };
+      identites.delete(tentative);
+      if (lien) liens.push({ iss: lien.iss, sub: lien.sub, compte: lien.compte, adresse: lien.adresse });
+      return { fait: true, ecrit: !!lien };
+    },
     // Les tentatives de connexion par un wallet existant : mêmes règles, une heure lue à chaque opération.
     async poserWallet({ tentative, nonce, duree, champs }) {
       const t = maintenant();

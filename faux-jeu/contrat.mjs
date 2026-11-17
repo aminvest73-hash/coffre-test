@@ -115,6 +115,7 @@ export function lireCanonique(octets, tailleMax) {
 export const PROTOCOLE_GESTION = 'coffre-gestion/1';
 export const PROTOCOLE_PREUVE = 'coffre-preuve/1';
 export const PROTOCOLE_CONNEXION = 'coffre-connexion/1';
+export const PROTOCOLE_CONNEXION_2 = 'coffre-connexion/2';
 export const DUREE_CONNEXION = 300;    // secondes : ce que vaut une preuve de connexion à un jeu
 export const TAILLE_CONTENU = 4096;   // contenu d'un message signé
 export const TAILLE_ETAT = 32768;     // état autorisé, sous sa forme canonique
@@ -325,6 +326,65 @@ export function validerConnexion(c) {
   return c;
 }
 
+// La preuve de connexion, VERSION 2 : la même preuve de possession du wallet, pour le parcours où notre service
+// rend ensuite au serveur du jeu une identité (un identifiant stable du joueur pour ce jeu, et parfois une adresse
+// e-mail prouvée). La clé du wallet y engage, en plus de la version 1, tout le contexte de la tentative du jeu :
+//   service     l'origine de la page du coffre (comme en version 1) ;
+//   emetteur    l'origine de notre service : c'est lui qui signera l'identité (`iss`). Il change avec l'environnement ;
+//   client      l'identifiant stable du jeu, tel qu'il est enregistré chez nous (il ne change pas avec son domaine) ;
+//   jeu         l'origine de destination : la page du jeu qui recevra la réponse (comme en version 1) ;
+//   adresse     le wallet ;
+//   defi        le défi du serveur du jeu pour cette tentative ;
+//   nonce       tiré par le serveur du jeu pour cette tentative ; il reviendra dans l'identité signée ;
+//   e           le défi S256 du serveur du jeu : base64url(SHA-256(ASCII(v))), où v est le vérifieur qu'il garde.
+//               Le code remis ne s'échangera qu'avec ce vérifieur (RFC 7636) ;
+//   intention   « identite » : une liste fermée, d'un seul mot aujourd'hui ;
+//   portee      « identite » (l'identifiant et le wallet ; l'adresse e-mail seulement si elle vient d'être prouvée et
+//               si le jeu y a droit), ou « identite-adresse » (la même chose, l'adresse exigée) ;
+//   emis, expire   comme en version 1 : cinq minutes au plus.
+// Les deux versions ne se confondent jamais : chacune a son nom de protocole et sa liste exacte de champs, et
+// chaque vérification n'accepte que la sienne. Une preuve version 1 ne vaut rien là où la version 2 est attendue,
+// et l'inverse.
+const CLIENT_JEU = /^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$/;
+const NONCE_JEU = /^[A-Za-z0-9_-]{22,128}$/;      // 128 bits au moins, écrits en base64url
+const DEFI_S256 = /^[A-Za-z0-9_-]{43}$/;          // un SHA-256, écrit en base64url sans remplissage
+export const INTENTIONS_CONNEXION = Object.freeze(['identite']);
+export const PORTEES_CONNEXION = Object.freeze(['identite', 'identite-adresse']);
+const CHAMPS_CONNEXION_2 = ['protocole', 'service', 'emetteur', 'client', 'jeu', 'adresse', 'defi', 'nonce', 'e', 'intention', 'portee', 'emis', 'expire'];
+// L'origine de notre service : https (ou l'ordinateur lui-même, pour les essais), sans chemin.
+function emetteurService(v) {
+  if (typeof v !== 'string' || v.length > 255) refuser('SchemaRefuse', 'emetteur');
+  let u;
+  try { u = new URL(v); } catch (_) { return refuser('SchemaRefuse', 'emetteur'); }
+  const local = u.protocol === 'http:' && u.hostname === 'localhost';
+  if (u.origin !== v || (u.protocol !== 'https:' && !local)) refuser('SchemaRefuse', 'emetteur');
+}
+export function validerConnexion2(c) {
+  objetExact(c, CHAMPS_CONNEXION_2, 'connexion');
+  if (c.protocole !== PROTOCOLE_CONNEXION_2) refuser('SchemaRefuse', 'protocole');
+  service(c.service);
+  emetteurService(c.emetteur);
+  if (typeof c.client !== 'string' || !CLIENT_JEU.test(c.client)) refuser('SchemaRefuse', 'client');
+  origineJeu(c.jeu);
+  adresse(c.adresse, 'adresse');
+  if (typeof c.defi !== 'string' || !DEFI_JEU.test(c.defi)) refuser('SchemaRefuse', 'defi');
+  if (typeof c.nonce !== 'string' || !NONCE_JEU.test(c.nonce)) refuser('SchemaRefuse', 'nonce');
+  if (typeof c.e !== 'string' || !DEFI_S256.test(c.e)) refuser('SchemaRefuse', 'e');
+  if (!INTENTIONS_CONNEXION.includes(c.intention)) refuser('SchemaRefuse', 'intention');
+  if (!PORTEES_CONNEXION.includes(c.portee)) refuser('SchemaRefuse', 'portee');
+  entier(c.emis, 1, 99999999999, 'emis');
+  entier(c.expire, 1, 99999999999, 'expire');
+  if (c.expire <= c.emis || c.expire - c.emis > DUREE_CONNEXION) refuser('SchemaRefuse', 'duree');
+  return c;
+}
+// Le défi S256 d'un vérifieur (RFC 7636) : base64url(SHA-256(ASCII(v))). `v` : 43 à 128 caractères de l'alphabet
+// de la RFC. Sert au serveur du jeu (il tire v et envoie e) et à notre service (il recalcule e à l'échange).
+const VERIFIEUR_S256 = /^[A-Za-z0-9._~-]{43,128}$/;
+export async function defiS256(verifieur) {
+  if (typeof verifieur !== 'string' || !VERIFIEUR_S256.test(verifieur)) refuser('SchemaRefuse', 'verifieur');
+  return b64u(new Uint8Array(await crypto.subtle.digest('SHA-256', te.encode(verifieur))));
+}
+
 // ---------- Le message signé : message hors chaîne de Solana, version 1, un seul signataire.
 // 16 octets de domaine (0xFF puis « solana offchain »), version 01, nombre de signataires 01,
 // clé publique du signataire, puis le contenu. Le premier octet interdit qu'il soit une transaction.
@@ -424,6 +484,43 @@ export async function verifierConnexionJeu(preuve, attendu) {
   if (!Number.isSafeInteger(attendu.maintenant) || c.expire <= attendu.maintenant - TOLERANCE_HORLOGE || c.emis > attendu.maintenant + TOLERANCE_HORLOGE) refuser('ConnexionRefusee', 'heure');
   if (!(await verifierSignature(signataire, preuve.signature, preuve.message))) refuser('ConnexionRefusee', 'signature');
   return { adresse: c.adresse, emis: c.emis, expire: c.expire };
+}
+
+// La version 2 : fabriquer, lire, vérifier. Mêmes règles que la version 1, avec le contexte d'identité en plus.
+export function contenuConnexion2(champs) {
+  return te.encode(canoniser(validerConnexion2(Object.assign({ protocole: PROTOCOLE_CONNEXION_2 }, champs))));
+}
+export async function faireConnexionJeu2(clePrivee, { service: s, emetteur, client, jeu, adresse: a, defi, nonce, e, intention, portee, maintenant }) {
+  const message = messageHorsChaine(deBase58(a, 32), contenuConnexion2({ service: s, emetteur, client, jeu, adresse: a, defi, nonce, e, intention, portee,
+    emis: maintenant, expire: maintenant + DUREE_CONNEXION }));
+  return { message, signature: await signer(clePrivee, message) };
+}
+// Lire une preuve version 2 SANS rien comparer à un contexte : la forme exacte, le signataire égal à l'adresse, la
+// signature. C'est ce que fait notre service à la remise : il lit ce que la clé du wallet a engagé, puis juge
+// chaque champ avec ses propres réglages et son registre des jeux. Rend les champs signés et l'empreinte de la
+// preuve (le SHA-256 du message suivi de la signature : c'est elle qui interdit une seconde remise).
+export async function lireConnexionJeu2(preuve) {
+  if (!preuve || !(preuve.message instanceof Uint8Array) || !(preuve.signature instanceof Uint8Array)) refuser('ConnexionRefusee', 'forme');
+  const { signataire, contenu } = lireMessageHorsChaine(preuve.message, TAILLE_CONTENU);
+  const c = validerConnexion2(lireCanonique(contenu, TAILLE_CONTENU));
+  if (base58(signataire) !== c.adresse) refuser('ConnexionRefusee', 'signataire');
+  if (!(await verifierSignature(signataire, preuve.signature, preuve.message))) refuser('ConnexionRefusee', 'signature');
+  const tout = new Uint8Array(preuve.message.length + preuve.signature.length);
+  tout.set(preuve.message, 0); tout.set(preuve.signature, preuve.message.length);
+  return { champs: c, empreinte: await empreinte(tout) };
+}
+// Ce que le serveur d'un jeu vérifie, SANS RIEN CONSOMMER NI ÉCRIRE, avant d'échanger le code. `attendu` vient du
+// jeu lui-même, jamais de ce qu'il a reçu : { service (la page du coffre), emetteur (notre service), client (son
+// identifiant chez nous), jeu (sa propre origine), defi, nonce, e (ceux de SA tentative), intention, portee,
+// maintenant }. Un champ oublié dans `attendu` fait refuser : on ne compare jamais à rien. Rend l'adresse du wallet,
+// les heures signées, et l'empreinte du défi (celle que portera l'identité signée par notre service).
+export async function verifierConnexionJeu2(preuve, attendu) {
+  const { champs: c } = await lireConnexionJeu2(preuve);
+  for (const nom of ['service', 'emetteur', 'client', 'jeu', 'defi', 'nonce', 'e', 'intention', 'portee']) {
+    if (!attendu || typeof attendu[nom] !== 'string' || !attendu[nom] || c[nom] !== attendu[nom]) refuser('ConnexionRefusee', nom);
+  }
+  if (!Number.isSafeInteger(attendu.maintenant) || c.expire <= attendu.maintenant - TOLERANCE_HORLOGE || c.emis > attendu.maintenant + TOLERANCE_HORLOGE) refuser('ConnexionRefusee', 'heure');
+  return { adresse: c.adresse, emis: c.emis, expire: c.expire, defi: await empreinte(te.encode(c.defi)) };
 }
 
 // ---------- Contrôler une création (le serveur). Tout ce qui ne dépend ni de l'heure ni de la base.

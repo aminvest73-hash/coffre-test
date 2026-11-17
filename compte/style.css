@@ -1,5 +1,6 @@
-/* L'habillage de l'essai : sobre, lisible sur un téléphone. Rien n'est chargé d'ailleurs : ni police, ni image.
-   L'habillage du produit viendra plus tard ; ici, seulement de quoi lire et toucher sans se tromper. */
+/* L'habillage de la page : sobre, lisible sur un téléphone. Rien n'est chargé d'ailleurs : ni police, ni image
+   (les deux logos des boutons « Continuer avec … » sont des fichiers de cette page, voir LOGOS.md).
+   Une action principale par écran ; le reste se range sous « Plus d'options ». */
 :root {
   color-scheme: light dark;
   --bg: #f3f4f7; --card: #ffffff; --ink: #141a26; --muted: #5d6677; --line: #e1e5ec;
@@ -23,21 +24,51 @@ body { margin: 0; background: var(--bg); color: var(--ink); -webkit-font-smoothi
 main { max-width: 460px; margin: 0 auto; padding: 20px 16px max(40px, env(safe-area-inset-bottom)); }
 
 .entete { display: flex; align-items: center; gap: 12px; margin: 6px 2px 2px; }
-.entete .muted { margin: 2px 0 0; font-size: 13px; }
-.marque { width: 40px; height: 40px; flex-shrink: 0; }
+.marque { width: 36px; height: 36px; flex-shrink: 0; }
+.essai-note { margin: 8px 2px 0; font-size: 13px; }
+/* Le choix de la langue : toujours là, en haut à droite. Deux petits boutons dans une même pastille. */
+.langue { display: inline-flex; flex-shrink: 0; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; background: var(--card); }
+.langue button { width: auto; min-height: 36px; min-width: 44px; margin: 0; padding: 6px 12px; border-radius: 0; background: transparent; color: var(--muted);
+                 font-size: 13px; font-weight: 600; }
+.langue button.actif { background: var(--accent); color: var(--accent-ink); }
 .marque .porte { fill: var(--accent); }
 .marque .cadran { fill: none; stroke: var(--accent-ink); stroke-width: 2.4; stroke-linecap: round; }
 
-h1 { font-size: 24px; line-height: 1.15; letter-spacing: -0.02em; margin: 8px 0 6px; }
-.entete h1 { margin: 0; }
-h2 { font-size: 17px; line-height: 1.25; letter-spacing: -0.01em; margin: 0 0 6px; }
+h1 { font-size: 20px; line-height: 1.15; letter-spacing: -0.02em; margin: 8px 0 6px; }
+.entete h1 { margin: 0; flex: 1; min-width: 0; }
+h2 { font-size: 18px; line-height: 1.25; letter-spacing: -0.01em; margin: 0 0 6px; }
+.fort { font-weight: 600; }
+.bon { color: var(--ok); font-weight: 600; }
+/* Une carte dont l'affaire est faite (le compte est protégé) : une coche devant son titre, rien de plus. */
+h2.fait::before { content: '✓'; color: var(--ok); margin-right: 8px; }
 p { margin: 0 0 10px; }
-.muted { color: var(--muted); font-size: 14px; }
+p:empty { display: none; }
+.muted { color: var(--muted); font-size: 14.5px; }
 
 .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 18px; margin-top: 14px; box-shadow: var(--ombre); }
 /* La demande d'un jeu est ce que le joueur est venu faire : elle se voit en premier. */
 .card.jeu { border-color: var(--accent); }
 .card.jeu strong { font-size: 18px; letter-spacing: -0.01em; }
+/* Le site du jeu qui demande : toujours écrit, sous son nom. */
+.site { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 14px; overflow-wrap: anywhere; margin: 0 0 10px; }
+.site::before { content: ''; width: 9px; height: 9px; border-radius: 50%; background: var(--ok); flex-shrink: 0; }
+.site:empty { display: none; }
+/* Un jeu demande, et il n'y a pas encore de compte ici : sa carte et celle de l'accueil n'en font qu'une. */
+#v-jeu:has(+ #v-accueil:not([hidden])) { border-bottom: 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0; box-shadow: none; padding-bottom: 4px; }
+#v-jeu:not([hidden]) + #v-accueil > .card { margin-top: 0; border-top: 0; border-top-left-radius: 0; border-top-right-radius: 0; border-color: var(--accent); padding-top: 4px;
+  clip-path: inset(0 -40px -40px -40px); }   /* son ombre ne remonte pas sur la moitié du haut */
+.pied { margin: 14px 6px 0; font-size: 13.5px; text-align: center; }
+/* L'adresse du wallet, en court, avec son bouton « Copier ». L'adresse entière est sous « Plus d'options ». */
+.puce { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; margin: 4px 0 2px; padding: 4px 4px 4px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); }
+.puce .adresse { font-size: 15px; }
+.etiquette { margin: 0; font-size: 13px; }
+.puce button.petit { background: transparent; color: var(--accent); font-weight: 600; }
+/* Les étapes d'un parcours : une barre par étape, pleine quand elle est atteinte. */
+.pas { display: flex; gap: 6px; margin: 2px 0 8px; }
+.pas i { flex: 1; height: 4px; border-radius: 4px; background: var(--line); }
+.pas i.fait { background: var(--accent); }
+.etape { font-size: 13px; margin: 0 0 8px; }
+.etape:empty { display: none; }
 
 button { font: inherit; font-weight: 600; border: 0; border-radius: 12px; padding: 13px 16px; min-height: 48px;
          background: var(--accent); color: var(--accent-ink); cursor: pointer; width: 100%; margin-top: 10px;
@@ -61,19 +92,32 @@ button.porte-discord { background: #5865f2; color: #ffffff; }
 /* Une porte sans marque (l'e-mail) : le même gabarit, aux couleurs de la page. */
 button.porte-neutre { background: transparent; color: var(--ink); border: 1px solid var(--line); }
 .note { font-size: 13px; margin: 6px 2px 0; text-align: center; }
-/* Une action secondaire écrite comme un lien : « J'ai déjà un coffre », sous le choix des portes. */
-button.lien { background: transparent; color: var(--accent); min-height: 44px; font-weight: 500; margin-top: 6px; }
-.ou { display: flex; align-items: center; gap: 12px; margin: 16px 2px 2px; color: var(--muted); font-size: 13px; }
-.ou::before, .ou::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+/* Une action secondaire écrite comme un lien : « J'ai déjà un compte », sous les autres choix. */
+button.lien { background: transparent; color: var(--accent); min-height: 44px; font-weight: 600; font-size: 15px; margin-top: 6px; }
+button.lien + button.lien { margin-top: 0; }
+/* La case de l'adresse e-mail et celle du code, quand elles s'ouvrent sous un bouton. */
+#z-identite, #z-code { margin-top: 10px; }
 button:disabled { opacity: .45; cursor: not-allowed; }
 @media (prefers-reduced-motion: reduce) { button { transition: none; } button:active { transform: none; } }
 
 .status { margin-top: 12px; font-size: 15px; overflow-wrap: anywhere; }
 .status:empty { display: none; }
+p.status { margin-bottom: 0; }
 .status.ok, .status.ko, .status.wait { padding: 10px 12px; border-radius: 10px; }
 .status.ok { color: var(--ok); background: var(--ok-doux); }
 .status.ko { color: var(--ko); background: var(--ko-doux); }
 .status.wait { color: var(--wait); background: var(--wait-doux); }
+
+/* Confirmer un envoi : ce qui sort du wallet, en grand ; le détail en dessous, en petit. */
+.envoi { white-space: pre-line; font-weight: 600; font-size: 18px; line-height: 1.35; letter-spacing: -0.01em; border: 1px solid var(--line);
+  border-radius: 12px; padding: 14px; margin: 12px 0 8px; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.envoi:empty, .detail-envoi:empty, .total-envoi:empty { display: none; }
+.detail-envoi { white-space: pre-line; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.total-envoi { font-weight: 600; margin: 10px 0 4px; }
+/* Une opération du programme d'un jeu : ce qui est lisible dans la demande, une ligne par fait ; puis ce que la fenêtre ne lit pas. */
+.faits-operation { white-space: pre-line; line-height: 1.5; margin: 10px 0 4px; }
+.faits-operation:empty { display: none; }
+.note-operation { font-size: 13px; line-height: 1.5; margin: 8px 0 4px; }
 
 .adresse { font: 600 15px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow-wrap: anywhere; }
 .mots { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; margin: 10px 0; padding: 0; list-style: none; }
@@ -90,13 +134,19 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 input[type="text"], input[type="password"], textarea { width: 100%; padding: 12px; min-height: 48px; border-radius: 12px; border: 1px solid var(--line);
          background: transparent; color: var(--ink); font: inherit; }
 textarea { min-height: 120px; font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; resize: vertical; margin-top: 10px; }
-#r-texte { font-size: 16px; }
 /* Une case posée juste sous un bouton (le code, sous « Recevoir mon code ») : le même écart qu'entre deux boutons. */
-button + input { margin-top: 10px; }
+button + input, div + input { margin-top: 10px; }
 .saisie { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; margin: 10px 0; }
 
 details { margin-top: 12px; }
 summary { cursor: pointer; color: var(--muted); font-weight: 500; font-size: 14px; -webkit-user-select: none; user-select: none; }
+/* « Plus d'options » : sous les cartes du compte, replié. Assez haut pour être touché sans viser. */
+details.options { margin: 14px 4px 0; }
+details.options > summary { min-height: 44px; display: flex; align-items: center; list-style: none; }
+details.options > summary::-webkit-details-marker { display: none; }
+details.options > summary::after { content: '›'; margin-left: 6px; font-size: 18px; line-height: 1; transition: transform .12s ease-out; }
+details.options[open] > summary::after { transform: rotate(90deg); }
+details.options .adresse { font-size: 13px; }
 details.card { margin-top: 14px; box-shadow: none; background: transparent; }
 details.card > summary { font-weight: 600; }
 [hidden] { display: none !important; }

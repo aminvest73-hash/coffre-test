@@ -6,10 +6,13 @@
 //   - format 3 (les coffres créés ici) : l'accès de secours porte un vérifieur, la clé publique d'une clé de
 //     récupération dérivée des 12 mots. Elle sert à prouver les mots à distance, sans le coffre (RECUPERATION.md).
 //     Les coffres au format 2 s'ouvrent toujours ; ils n'ont pas de récupération.
-// Briques : WebCrypto, et le module du contrat. Rien d'autre.
+//   - le coffre ouvert sait signer une opération (un message de transaction), seulement après l'avoir relue
+//     lui-même avec operation.mjs.
+// Briques : WebCrypto, le module du contrat, et la lecture des opérations. Rien d'autre.
 
 import * as K from './contrat.mjs';
 import { LISTES, EMPREINTES } from './listes.mjs';
+import * as O from './operation.mjs';
 
 export { EMPREINTES };
 export const Refus = K.Refus;
@@ -161,6 +164,12 @@ async function ouvrir(c, kekAcces, acces, role, plus) {
       if (!cle) refuser('OuvertureRefusee', 'coffre referme');
       return K.faireConnexionJeu(cle, { service, jeu, adresse: c.adresse, defi, maintenant });
     },
+    // La même preuve en version 2, pour le parcours où le service rend ensuite une identité au jeu : la clé engage
+    // en plus l'émetteur (notre service), le client (le jeu enregistré), `nonce`, `e`, l'intention et la portée.
+    async prouverConnexion2({ service, emetteur, client, jeu, defi, nonce, e, intention, portee, maintenant }) {
+      if (!cle) refuser('OuvertureRefusee', 'coffre referme');
+      return K.faireConnexionJeu2(cle, { service, emetteur, client, jeu, adresse: c.adresse, defi, nonce, e, intention, portee, maintenant });
+    },
     // Attester le secours : la clé du wallet signe « l'accès de secours en place a servi à une vraie restauration ».
     // `contexte` : { service, environnement, projet, compte, defi, expire, avant: { version, empreinte } }.
     // La page construit elle-même ce qu'elle signe ; l'appelant n'appelle ceci qu'après la restauration réussie.
@@ -181,6 +190,37 @@ async function ouvrir(c, kekAcces, acces, role, plus) {
       const contenu = K.contenuGestion(Object.assign({}, contexte, { action: 'regler-adresse', coffre: c.id, adresse: c.adresse }));
       const message = K.messageHorsChaine(K.deBase58(c.adresse, 32), contenu);
       return { message, signature: await K.signer(cle, message) };
+    },
+    // Signer une opération : les octets d'un message de transaction, tels quels. La clé du wallet ne signe ici que
+    // ce que `lireDemande` (operation.mjs) juge signable pour CE wallet, et dont le jugement est exactement celui que
+    // la page a montré au joueur (`attendu` : le texte unique de ce jugement). Les octets sont rejugés ici, au
+    // dernier moment, sur une copie : ce qui est signé est ce qui vient d'être relu. Rien n'est reconstruit.
+    // `contexte` : rien pour un jeu sans fiche (un envoi de SOL, lu en entier) ; { jeu, fiche } pour un jeu qui a une
+    // fiche et demande un envoi ordinaire (sa fiche doit le permettre) ; { jeu, fiche, operation, version } pour une
+    // opération nommée : `octets` est alors la transaction partiellement signée, le coffre revérifie lui-même la
+    // fiche, le gabarit et les cosignatures du studio, et ne signe que le message qu'elle contient.
+    // Un message hors chaîne (connexion, gestion, preuve) commence par l'octet 0xff : il n'est jamais lu comme une
+    // opération, et une opération n'est jamais un message hors chaîne.
+    // `encoreValide`, s'il est donné : une fonction que l'appelant tient à jour (« la demande du jeu vit-elle
+    // encore ? »). Le geste du joueur a pu durer : la demande a pu expirer, être retirée ou remplacée entre-temps.
+    // Elle est appelée ici, une seule fois, après la relecture et collée à la signature (rien n'attend entre les
+    // deux) ; si elle ne rend pas exactement `true` (une promesse n'est pas `true`), ou si elle échoue :
+    // `OperationExpiree`, et aucune signature n'est calculée.
+    async signerOperation(octets, attendu, contexte, encoreValide) {
+      if (!cle) refuser('OuvertureRefusee', 'coffre referme');
+      if (!(octets instanceof Uint8Array) || typeof attendu !== 'string') refuser('OperationRefusee', 'demande');
+      if (encoreValide !== undefined && typeof encoreValide !== 'function') refuser('OperationRefusee', 'encoreValide');
+      const copie = Uint8Array.from(octets);
+      const relue = await O.lireDemande(copie, { wallet: c.adresse, contexte });
+      if (relue.cle !== attendu) refuser('OperationChangee');
+      const aSigner = relue.message;   // le message lui-même, ou celui que contient la transaction : jamais d'autres octets
+      if (encoreValide !== undefined) {
+        let vivante = false;
+        try { vivante = encoreValide() === true; } catch (_) { vivante = false; }
+        if (!vivante) refuser('OperationExpiree');
+        if (!cle) refuser('OuvertureRefusee', 'coffre referme');   // la fonction appelée a pu refermer le coffre
+      }
+      return K.signer(cle, aSigner);
     },
     fermer() { dek = null; cle = null; },
   };
@@ -288,7 +328,8 @@ export async function ajouterAcces({ coffre, par, sortiePrf, passkey, passkeys, 
 // { service, environnement, projet, compte, inscription, defi, expire }.
 // Rend le coffre fermé, l'état autorisé (octets canoniques), et le message de création signé par la clé du wallet.
 // `connexion`, s'il est donné : { jeu, defi, maintenant }. La clé signe alors aussi la preuve de connexion à ce jeu,
-// pour qu'un nouveau joueur crée son coffre et entre dans le jeu d'un seul geste.
+// pour qu'un nouveau joueur crée son coffre et entre dans le jeu d'un seul geste. Avec `connexion.identite`
+// ({ emetteur, client, nonce, e, intention, portee }), c'est la preuve version 2 qui est signée, et elle seule.
 export async function creer({ sortiePrf, passkey, langue, contexte, connexion }) {
   if (!langueConnue(langue)) refuser('CoffreInvalide', 'langue');
   const prf = new Uint8Array(sortiePrf).slice();
@@ -331,8 +372,10 @@ export async function creer({ sortiePrf, passkey, langue, contexte, connexion })
   }));
   const message = K.messageHorsChaine(publique, contenu);
   const signature = await K.signer(paire.privateKey, message);
-  const preuve = connexion
-    ? await K.faireConnexionJeu(paire.privateKey, { service: contexte.service, jeu: connexion.jeu, adresse: coffre.adresse, defi: connexion.defi, maintenant: connexion.maintenant })
-    : null;
+  const i = connexion && connexion.identite;
+  const preuve = !connexion ? null
+    : i ? await K.faireConnexionJeu2(paire.privateKey, { service: contexte.service, emetteur: i.emetteur, client: i.client, jeu: connexion.jeu, adresse: coffre.adresse,
+      defi: connexion.defi, nonce: i.nonce, e: i.e, intention: i.intention, portee: i.portee, maintenant: connexion.maintenant })
+    : await K.faireConnexionJeu(paire.privateKey, { service: contexte.service, jeu: connexion.jeu, adresse: coffre.adresse, defi: connexion.defi, maintenant: connexion.maintenant });
   return { coffre, etat, empreinte, message, signature, preuve };
 }

@@ -12,7 +12,7 @@
 <body>
 <main>
   <h1>Faux jeu</h1>
-  <p class="muted">Ceci n'est pas un vrai jeu. Il sert à essayer « Se connecter » (avec des clés jetables) et « Connecter mon wallet ».</p>
+  <p class="muted">Ceci n'est pas un vrai jeu. Il sert à essayer « Se connecter » (avec des clés jetables), « Connecter mon wallet », la confirmation d'un envoi et celle d'une opération du jeu.</p>
 
   <section class="card">
     <h2 id="titre">Bienvenue</h2>
@@ -26,7 +26,38 @@
       <p class="muted">Plusieurs wallets sont installés. Lequel veux-tu utiliser ?</p>
       <div id="l-wallets"></div>
     </div>
+    <!-- Aucun wallet ne s'annonce dans ce navigateur (le cas d'un téléphone, hors de l'application d'un wallet) :
+         la page propose de s'ouvrir dans le navigateur du wallet. De vrais liens, posés par demo.mjs, que le joueur
+         touche lui-même : ils ne marchent que touchés, rien n'est ouvert par le script. -->
+    <div id="z-ouvrir" hidden>
+      <p>Aucun wallet Solana compatible n'a été trouvé dans ce navigateur.</p>
+      <div id="z-ouvrir-liens" hidden>
+        <p>Sur un téléphone, ouvre cette page dans l'application de ton wallet :</p>
+        <div class="cartes" id="l-ouvrir"></div>
+      </div>
+      <p class="muted">Un autre wallet ? Ouvre son application, puis cette page dans son navigateur. Sur un ordinateur, installe son extension et recharge la page.</p>
+      <p class="muted">Pas de wallet ? Touche « Se connecter », en haut : ton coffre t'en donne un.</p>
+    </div>
     <div class="status" id="s-jeu"></div>
+  </section>
+
+  <!-- Visible une fois connecté avec un coffre : faire confirmer un envoi dans la fenêtre du coffre. Rien n'est diffusé. -->
+  <section class="card" id="z-envoi" hidden>
+    <h2>Essayer un envoi</h2>
+    <p>La fenêtre de ton coffre te montre l'envoi et te demande de confirmer. Le faux jeu vérifie ensuite ta signature.</p>
+    <button id="b-envoi">Envoyer 0,001 SOL (essai)</button>
+    <p class="muted note">Essai : rien n'est envoyé sur le réseau.</p>
+    <div class="status" id="s-envoi"></div>
+  </section>
+
+  <!-- Visible une fois connecté avec un coffre : deux opérations d'essai du « programme » du faux jeu. Rien n'est diffusé. -->
+  <section class="card" id="z-operations" hidden>
+    <h2>Essayer une opération du jeu</h2>
+    <p>Le faux jeu prépare une opération de son programme (un faux), la signe avec ses clés d'essai, puis ta fenêtre te demande de confirmer.</p>
+    <button id="b-ouvrir-essai">Ouvrir un coffre (essai)</button>
+    <button id="b-cadeau-essai" class="second">Réclamer mon cadeau (essai)</button>
+    <p class="muted note">Essai : rien n'est envoyé sur le réseau.</p>
+    <div class="status" id="s-operations"></div>
   </section>
 
   <section class="card">

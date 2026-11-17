@@ -1,16 +1,16 @@
 // Ce que la page sait d'elle-même. Rien ici ne vient du serveur. Fichier écrit par assembler.mjs.
 export const REGLAGES = {
-  version: 'en ligne 9',
+  version: 'en ligne 10',
   api: "https://coffre-serveur-test.aminvest73.workers.dev",
   rpId: "aminvest73-hash.github.io",
   environnement: 'essai',
   projet: 'essai',
   langue: 'fr',
-  jeux: {"https://raw.githack.com":"Faux jeu (essai)","https://staging.monstermine.io":"MonsterMine (essai)","https://www.monstermine.io":"MonsterMine"},
+  jeux: {"https://www.monstermine.io":"MonsterMine"},
   identite: 'email',
   recuperation: 'email',
   portes: ["google"],
   adresseIdentite: "https://coffre-serveur-test.aminvest73.workers.dev",
   // Les fiches d'opérations des jeux : tenues ici, jamais reçues du jeu (operation.mjs).
-  operations: {"https://raw.githack.com":{"v":1,"version":1,"reseau":"devnet","programmes":["9bwDcSRt76qhidQoYbaZHKgJZVjShHCvZwYukAE6kEtZ"],"signataires":{"admin":"DNuXmBjpWxztmiQjAq1LkaQPYvQVD16cDHYmVYPikTr8","payeur":"CfzXrUGXnGmU5ExPka6AiGTJoC7P9HASshWAS4u6PAuE"},"envoiLibre":true,"operations":{"ouvrir-coffre-essai":{"version":1,"texte":"Ouvrir un coffre (essai)","frais":"payeur","wallet":"ecriture","signataires":["admin","payeur"],"neufs":[1,1],"instructions":[{"genre":"avance","de":"payeur","max":"5000000"},{"genre":"programme","programme":"9bwDcSRt76qhidQoYbaZHKgJZVjShHCvZwYukAE6kEtZ","debut":"fe13031f0cf1b0c9","donnees":[8,8],"comptes":[10,10],"joueur":[0],"studio":{"1":"admin"},"neufs":[3],"fixes":{"2":"25CHZzn3Fa2ZfAckWTYsg9Gru8bcRmp29hZ4qjtYyoZ2","5":"57VDHHwK4vG4LVYQXRDMzP5RxqNj81AV7yo8Wv6uAwJv","6":"4jpto1ouvahgwAgW8veTAw3MQWxqjDtbSX5u2GNVBE1K","7":"11111111111111111111111111111111","8":"7UNM22VGWMKVR9jgF3TRf43XZ1Ed4aPUcgRqsuqHzmnB","9":"3r4VLY92hTSH2ny7rXBxTQwPcu4UheVympBgKBsaNDHY"}}]},"reclamer-cadeau-essai":{"version":1,"texte":"Réclamer mon cadeau (essai)","frais":"payeur","wallet":"lecture","signataires":["payeur"],"neufs":[0,0],"instructions":[{"genre":"programme","programme":"9bwDcSRt76qhidQoYbaZHKgJZVjShHCvZwYukAE6kEtZ","debut":"93225aa507e7dd43","donnees":[9,9],"comptes":[3,3],"joueur":[0],"studio":{"2":"payeur"},"arguments":[{"place":8,"taille":1,"min":"1","max":"4"}],"fois":[1,4]}]}}}},
+  operations: {"https://www.monstermine.io":{"v":1,"version":1,"reseau":"mainnet","programmes":["3vuCurogVkzAy6gQv9HRL8qW4MZn5UAyoWpunGtHBJ7D"],"signataires":{"admin":"As1qopTAVVZJmiE4xjqtXeQqsJPiRv9GKet4VK6D82j2","payeur":"BC6YGzjhnE3yGkhTsGav8jpGhjpFUDoKDiGm1CzvdVdW"},"operations":{"cadeau-vagazor":{"version":1,"texte":"Recevoir ton cadeau : Vagazor","frais":"payeur","wallet":"ecriture","signataires":["admin","payeur"],"neufs":[1,1],"instructions":[{"genre":"avance","de":"payeur","max":"21000000"},{"genre":"programme","programme":"3vuCurogVkzAy6gQv9HRL8qW4MZn5UAyoWpunGtHBJ7D","debut":"fb8c370681922f03","donnees":[40,40],"comptes":[7,7],"joueur":[0],"studio":{"1":"admin"},"neufs":[3],"fixes":{"2":"3SdKWrtV4dMW2TArMetkZ9mJrrvVvFPb9Nve6oXS9Mnj","5":"CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d","6":"11111111111111111111111111111111"},"arguments":[{"place":8,"octets":"1c00000068747470733a2f2f6d656469612e6d6f6e737465726d696e652e696f"}]}]}}}},
 };

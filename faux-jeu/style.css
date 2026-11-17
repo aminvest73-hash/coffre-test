@@ -49,6 +49,22 @@ button:active { transform: scale(.97); }
 button:focus-visible, input:focus-visible, textarea:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 button.second { background: transparent; color: var(--accent); border: 1px solid var(--line); }
 button.petit { width: auto; min-height: 40px; padding: 6px 12px; margin: 0; font-weight: 500; font-size: 14px; }
+/* « Continuer avec … » : le logo officiel du service (un fichier servi par la page, voir LOGOS.md), et les couleurs
+   que chaque service demande pour son bouton (Google : blanc bordé de gris en clair, presque noir en sombre ; Discord :
+   son bleu, symbole blanc). Le texte reste celui de la page : aucune police n'est chargée d'ailleurs. */
+button.porte { display: flex; align-items: center; justify-content: center; gap: 12px; }
+button.porte svg, button.porte img { width: 20px; height: 20px; flex-shrink: 0; }
+button.porte img { object-fit: contain; pointer-events: none; -webkit-user-drag: none; }
+button.porte-google { background: #ffffff; color: #1f1f1f; border: 1px solid #747775; }
+button.porte-discord { background: #5865f2; color: #ffffff; }
+@media (prefers-color-scheme: dark) { button.porte-google { background: #131314; color: #e3e3e3; border-color: #8e918f; } }
+/* Une porte sans marque (l'e-mail) : le même gabarit, aux couleurs de la page. */
+button.porte-neutre { background: transparent; color: var(--ink); border: 1px solid var(--line); }
+.note { font-size: 13px; margin: 6px 2px 0; text-align: center; }
+/* Une action secondaire écrite comme un lien : « J'ai déjà un coffre », sous le choix des portes. */
+button.lien { background: transparent; color: var(--accent); min-height: 44px; font-weight: 500; margin-top: 6px; }
+.ou { display: flex; align-items: center; gap: 12px; margin: 16px 2px 2px; color: var(--muted); font-size: 13px; }
+.ou::before, .ou::after { content: ''; flex: 1; height: 1px; background: var(--line); }
 button:disabled { opacity: .45; cursor: not-allowed; }
 @media (prefers-reduced-motion: reduce) { button { transition: none; } button:active { transform: none; } }
 
@@ -75,6 +91,8 @@ input[type="text"], input[type="password"], textarea { width: 100%; padding: 12p
          background: transparent; color: var(--ink); font: inherit; }
 textarea { min-height: 120px; font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; resize: vertical; margin-top: 10px; }
 #r-texte { font-size: 16px; }
+/* Une case posée juste sous un bouton (le code, sous « Recevoir mon code ») : le même écart qu'entre deux boutons. */
+button + input { margin-top: 10px; }
 .saisie { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; margin: 10px 0; }
 
 details { margin-top: 12px; }

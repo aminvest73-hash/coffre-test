@@ -118,7 +118,7 @@ export const PROTOCOLE_CONNEXION = 'coffre-connexion/1';
 export const DUREE_CONNEXION = 300;    // secondes : ce que vaut une preuve de connexion à un jeu
 export const TAILLE_CONTENU = 4096;   // contenu d'un message signé
 export const TAILLE_ETAT = 32768;     // état autorisé, sous sa forme canonique
-const ACTIONS = ['creer', 'ajouter-acces', 'attester-secours'];
+const ACTIONS = ['creer', 'ajouter-acces', 'attester-secours', 'regler-adresse'];
 const ALGORITHMES = ['ES256', 'RS256'];
 const IDENTIFIANT = /^[A-Za-z0-9_-]{22}$/;
 const NOM = /^[a-z0-9-]{1,32}$/;
@@ -164,12 +164,14 @@ function versionEtEmpreinte(x, nom) {
   octets(x.empreinte, 32, nom + ' : empreinte');
 }
 
-// Le coffre fermé, version 2 : la version 1, plus un numéro de version et plusieurs accès passkey possibles.
+// Le coffre fermé. Version 2 : un numéro de version et plusieurs accès passkey possibles. Version 3 : la même,
+// et l'accès de secours porte en plus son vérifieur, la clé publique de la clé de récupération (RECUPERATION.md).
+// Le vérifieur est donc dans l'état autorisé dès la création, et ne circule jamais sans le coffre fermé.
 // Le secours est toujours le dernier accès.
 export function validerCoffre(c, limites) {
   const maxPasskeys = (limites && limites.accesPasskey) || 8;
   objetExact(c, ['format', 'v', 'id', 'adresse', 'version', 'cle', 'acces', 'rappel'], 'coffre');
-  if (c.format !== 'coffre' || c.v !== 2) refuser('SchemaRefuse', 'coffre : format');
+  if (c.format !== 'coffre' || (c.v !== 2 && c.v !== 3)) refuser('SchemaRefuse', 'coffre : format');
   identifiant(c.id, 'coffre : id');
   adresse(c.adresse, 'coffre : adresse');
   entier(c.version, 1, VERSION_MAX, 'coffre : version');
@@ -181,8 +183,9 @@ export function validerCoffre(c, limites) {
   for (let i = 0; i < c.acces.length; i++) {
     const a = c.acces[i];
     if (i === c.acces.length - 1) {
-      objetExact(a, ['type', 'langue', 'sel', 'iv', 'ct'], 'secours');
+      objetExact(a, c.v === 3 ? ['type', 'langue', 'sel', 'iv', 'ct', 'verifieur'] : ['type', 'langue', 'sel', 'iv', 'ct'], 'secours');
       if (a.type !== 'secours' || (a.langue !== 'fr' && a.langue !== 'en')) refuser('SchemaRefuse', 'secours');
+      if (c.v === 3) octets(a.verifieur, 32, 'secours : verifieur');
     } else {
       objetExact(a, ['type', 'cred', 'sel', 'iv', 'ct'], 'acces');
       if (a.type !== 'passkey') refuser('SchemaRefuse', 'acces : type');
@@ -219,14 +222,24 @@ const PAR_ACTION = {
   'creer': ['inscription', 'apres', 'passkey'],
   'ajouter-acces': ['avant', 'apres', 'passkey'],
   'attester-secours': ['avant', 'secours'],
+  'regler-adresse': ['rang', 'generation'],
 };
 
 // Le contenu d'un message de gestion. Un champ qui n'appartient pas à l'action doit être absent.
+// Un seul champ est facultatif : `identite`, dans « attester-secours » et « regler-adresse ». C'est l'empreinte du
+// jeton de la preuve d'identité que le joueur vient d'obtenir : la clé du wallet désigne ainsi elle-même l'identité
+// qui pourra demander la remise du coffre.
+//   attester-secours : présent quand le service a la récupération, absent sinon ;
+//   regler-adresse   : présent pour inscrire cette identité comme adresse de secours au rang donné (1 ou 2), à la
+//                      place de celle qui s'y trouve ; absent pour retirer l'adresse du rang 2. Le rang 1 ne se
+//                      retire pas : il se remplace. `generation` est celle que la page connaît : l'opération ne
+//                      vaut que pour elle, et la fait avancer d'un.
 export function validerGestion(g) {
   if (!g || typeof g !== 'object' || Array.isArray(g)) refuser('SchemaRefuse', 'gestion');
   if (g.protocole !== PROTOCOLE_GESTION) refuser('SchemaRefuse', 'protocole');
   if (typeof g.action !== 'string' || !ACTIONS.includes(g.action)) refuser('SchemaRefuse', 'action');
-  objetExact(g, COMMUNS.concat(PAR_ACTION[g.action]), 'gestion');
+  const lie = (g.action === 'attester-secours' || g.action === 'regler-adresse') && Object.prototype.hasOwnProperty.call(g, 'identite');
+  objetExact(g, COMMUNS.concat(PAR_ACTION[g.action], lie ? ['identite'] : []), 'gestion');
   service(g.service);
   nomCourt(g.environnement, 'environnement');
   nomCourt(g.projet, 'projet');
@@ -245,13 +258,38 @@ export function validerGestion(g) {
     versionEtEmpreinte(g.apres, 'apres');
     if (g.apres.version !== g.avant.version + 1) refuser('SchemaRefuse', 'apres : version');
     passkey(g.passkey, 'passkey');
+  } else if (g.action === 'regler-adresse') {
+    entier(g.rang, 1, 2, 'rang');
+    entier(g.generation, 1, VERSION_MAX, 'generation');
+    if (lie) octets(g.identite, 32, 'identite');
+    else if (g.rang !== 2) refuser('SchemaRefuse', 'la premiere adresse ne se retire pas');
   } else {
     versionEtEmpreinte(g.avant, 'avant');
     objetExact(g.secours, ['acces', 'declaration'], 'secours');
     octets(g.secours.acces, 32, 'secours : acces');
     if (g.secours.declaration !== 'fait') refuser('SchemaRefuse', 'secours : declaration');
+    if (lie) octets(g.identite, 32, 'identite');
   }
   return g;
+}
+
+// Le message de récupération : « je connais les 12 mots de ce coffre », signé par la clé de récupération (celle
+// dont le vérifieur est inscrit dans l'accès de secours), jamais par la clé du wallet. Tous les champs sont
+// explicites, et `operation` ne prend qu'une valeur : ce message ne sert qu'à se faire remettre le coffre fermé.
+export const PROTOCOLE_RECUPERATION = 'coffre-recuperation/1';
+export function validerRecuperation(r) {
+  objetExact(r, ['protocole', 'service', 'environnement', 'projet', 'compte', 'coffre', 'generation', 'operation', 'defi', 'expire'], 'recuperation');
+  if (r.protocole !== PROTOCOLE_RECUPERATION) refuser('SchemaRefuse', 'protocole');
+  if (r.operation !== 'ouvrir') refuser('SchemaRefuse', 'operation');
+  service(r.service);
+  nomCourt(r.environnement, 'environnement');
+  nomCourt(r.projet, 'projet');
+  identifiant(r.compte, 'compte');
+  identifiant(r.coffre, 'coffre');
+  entier(r.generation, 1, VERSION_MAX, 'generation');
+  octets(r.defi, 32, 'defi');
+  entier(r.expire, 1, 100000000000, 'expire');
+  return r;
 }
 
 // Le contenu de la preuve locale (E5). Elle ne quitte jamais la page.
@@ -343,6 +381,9 @@ export function contenuGestion(champs) {
 export function contenuPreuve(champs) {
   return te.encode(canoniser(validerPreuve(Object.assign({ protocole: PROTOCOLE_PREUVE }, champs))));
 }
+export function contenuRecuperation(champs) {
+  return te.encode(canoniser(validerRecuperation(Object.assign({ protocole: PROTOCOLE_RECUPERATION, operation: 'ouvrir' }, champs))));
+}
 
 // La preuve locale : la clé qui vient d'être retrouvée signe, et la signature est vérifiée avec l'adresse
 // inscrite dans le coffre. Aucun défi du serveur, aucun envoi.
@@ -426,7 +467,10 @@ export async function empreinteAccesSecours(coffre) {
 }
 // Ce que le serveur contrôle. `attendu` vient de sa configuration, de sa base et du défi qu'il a émis pour ce
 // compte, jamais de la demande :
-// { service, environnement, projet, compte, coffre, adresse, defi, expire, version, empreinte, acces }.
+// { service, environnement, projet, compte, coffre, adresse, defi, expire, version, empreinte, acces, identite }.
+// `identite` : l'empreinte du jeton de la preuve d'identité reçue avec la demande, ou `null` quand le service
+// n'en attend pas (la déclaration ne doit alors pas en porter). Un autre jeton, même valable, donne une autre
+// empreinte : la signature du wallet ne le couvre pas.
 // Un champ oublié dans `attendu` fait refuser. L'appelant consomme ensuite le défi, dans l'écriture elle-même.
 export async function controlerAttestation(corps, attendu) {
   const { signataire, contenu } = lireMessageHorsChaine(corps.message, TAILLE_CONTENU);
@@ -442,7 +486,9 @@ export async function controlerAttestation(corps, attendu) {
   if (!Number.isSafeInteger(attendu.version) || typeof attendu.empreinte !== 'string'
     || g.avant.version !== attendu.version || g.avant.empreinte !== attendu.empreinte) refuser('EtatRefuse', 'version');
   if (typeof attendu.acces !== 'string' || g.secours.acces !== attendu.acces) refuser('EtatRefuse', 'acces de secours');
-  return { gestion: g, version: g.avant.version };
+  if (attendu.identite === null) { if (g.identite !== undefined) refuser('ContexteRefuse', 'identite inattendue'); }
+  else if (typeof attendu.identite !== 'string' || g.identite !== attendu.identite) refuser('ContexteRefuse', 'identite');
+  return { gestion: g, version: g.avant.version, identite: g.identite === undefined ? null : g.identite };
 }
 // Ce que la page relit quand une attestation lui revient (du serveur, ou de sa propre copie) : signée par le wallet
 // de ce coffre, pour ce compte, et désignant l'accès de secours que ce coffre porte aujourd'hui. Le défi est consommé
@@ -459,7 +505,86 @@ export async function relireAttestation(corps, attendu) {
   if (g.avant.version > c.version) refuser('EtatRefuse', 'version');
   if (g.secours.acces !== (await empreinteAccesSecours(c))) refuser('EtatRefuse', 'acces de secours');
   if (!(await verifierSignature(signataire, corps.signature, corps.message))) refuser('SignatureRefusee');
-  return true;
+  return { identite: g.identite !== undefined };   // la déclaration désigne-t-elle une identité de récupération ?
+}
+
+// ---------- Régler une adresse de secours (le serveur). La clé du wallet inscrit une identité à un rang, ou retire
+// celle du rang 2. `attendu` vient de la configuration, de la base et du défi émis pour ce compte :
+// { service, environnement, projet, compte, coffre, adresse, defi, expire, generation, identite }.
+// `identite` : l'empreinte du jeton de la preuve d'identité reçue avec la demande, ou `null` si la demande n'en
+// porte pas (le message ne doit alors pas en porter : c'est un retrait). Un champ oublié fait refuser.
+export async function controlerReglage(corps, attendu) {
+  const { signataire, contenu } = lireMessageHorsChaine(corps.message, TAILLE_CONTENU);
+  const g = validerGestion(lireCanonique(contenu, TAILLE_CONTENU));
+  if (g.action !== 'regler-adresse') refuser('ContexteRefuse', 'action');
+  for (const champ of ['service', 'environnement', 'projet', 'compte', 'coffre', 'adresse']) {
+    if (typeof attendu[champ] !== 'string' || g[champ] !== attendu[champ]) refuser('ContexteRefuse', champ);
+  }
+  if (base58(signataire) !== g.adresse) refuser('SignataireRefuse');
+  if (!(await verifierSignature(signataire, corps.signature, corps.message))) refuser('SignatureRefusee');
+  if (typeof attendu.defi !== 'string' || g.defi !== attendu.defi) refuser('DefiRefuse');
+  if (!Number.isSafeInteger(attendu.expire) || g.expire !== attendu.expire) refuser('ExpirationRefusee');
+  if (!Number.isSafeInteger(attendu.generation) || g.generation !== attendu.generation) refuser('GenerationRefusee');
+  if (attendu.identite === null) { if (g.identite !== undefined) refuser('ContexteRefuse', 'identite inattendue'); }
+  else if (typeof attendu.identite !== 'string' || g.identite !== attendu.identite) refuser('ContexteRefuse', 'identite');
+  return { gestion: g, rang: g.rang, generation: g.generation, identite: g.identite === undefined ? null : g.identite };
+}
+
+// ---------- La remise du coffre fermé contre une preuve des 12 mots (le serveur). `attendu` vient de sa
+// configuration et de l'ouverture qu'il a rangée en émettant le défi, jamais de la demande :
+// { service, environnement, projet, compte, coffre, generation, defi, expire, verifieur }.
+// `verifieur` est celui de l'accès de secours de l'état gardé : c'est lui qui doit avoir signé.
+// L'appelant ne dit jamais laquelle de ces vérifications a échoué : un seul refus vers l'extérieur.
+export async function controlerRecuperation(corps, attendu) {
+  const { signataire, contenu } = lireMessageHorsChaine(corps.message, TAILLE_CONTENU);
+  const r = validerRecuperation(lireCanonique(contenu, TAILLE_CONTENU));
+  for (const champ of ['service', 'environnement', 'projet', 'compte', 'coffre', 'defi']) {
+    if (typeof attendu[champ] !== 'string' || r[champ] !== attendu[champ]) refuser('ContexteRefuse', champ);
+  }
+  if (!Number.isSafeInteger(attendu.generation) || r.generation !== attendu.generation) refuser('ContexteRefuse', 'generation');
+  if (!Number.isSafeInteger(attendu.expire) || r.expire !== attendu.expire) refuser('ExpirationRefusee');
+  if (typeof attendu.verifieur !== 'string' || b64u(signataire) !== attendu.verifieur) refuser('SignataireRefuse');
+  if (!(await verifierSignature(signataire, corps.signature, corps.message))) refuser('SignatureRefusee');
+  return r;
+}
+
+// ---------- Ajouter un accès (le serveur). La clé du wallet autorise le passage d'un état au suivant, et le
+// suivant doit être l'ancien, plus exactement un accès passkey : même identifiant, même adresse, même clé
+// enveloppée, mêmes accès dans le même ordre, même accès de secours, numéro de version plus un.
+// `attendu` vient de la configuration, de la base et du défi émis pour ce compte :
+// { service, environnement, projet, compte, coffre, adresse, defi, expire, version, empreinte,
+//   etat (l'état gardé, relu de la base), passkey: { cred, alg, cle } (celle que le serveur vient de vérifier) }.
+// Le serveur ne constate pas que la nouvelle passkey sait rouvrir le coffre : seule la page le vérifie, avant de signer.
+export async function controlerAjout(corps, attendu, limites) {
+  const { signataire, contenu } = lireMessageHorsChaine(corps.message, TAILLE_CONTENU);
+  const g = validerGestion(lireCanonique(contenu, TAILLE_CONTENU));
+  if (g.action !== 'ajouter-acces') refuser('ContexteRefuse', 'action');
+  for (const champ of ['service', 'environnement', 'projet', 'compte', 'coffre', 'adresse']) {
+    if (typeof attendu[champ] !== 'string' || g[champ] !== attendu[champ]) refuser('ContexteRefuse', champ);
+  }
+  if (base58(signataire) !== g.adresse) refuser('SignataireRefuse');
+  if (!(await verifierSignature(signataire, corps.signature, corps.message))) refuser('SignatureRefusee');
+  if (typeof attendu.defi !== 'string' || g.defi !== attendu.defi) refuser('DefiRefuse');
+  if (!Number.isSafeInteger(attendu.expire) || g.expire !== attendu.expire) refuser('ExpirationRefusee');
+  if (!Number.isSafeInteger(attendu.version) || typeof attendu.empreinte !== 'string'
+    || g.avant.version !== attendu.version || g.avant.empreinte !== attendu.empreinte) refuser('EtatRefuse', 'avant');
+  const e = validerEtat(lireCanonique(corps.etat, TAILLE_ETAT), limites);
+  if (e.coffre.version !== g.apres.version || g.apres.empreinte !== (await empreinte(corps.etat))) refuser('EtatRefuse', 'empreinte');
+  const a = attendu.etat;
+  if (!a || !a.coffre || !Array.isArray(a.coffre.acces) || !Array.isArray(a.passkeys) || a.coffre.version !== attendu.version) refuser('EtatRefuse', 'ancien');
+  const meme = (x, y) => canoniser(x) === canoniser(y);
+  const ancien = a.coffre, nouveau = e.coffre, n = a.passkeys.length;
+  if (nouveau.version !== ancien.version + 1 || nouveau.acces.length !== ancien.acces.length + 1) refuser('EtatRefuse', 'un seul acces de plus');
+  for (const champ of ['format', 'v', 'id', 'adresse', 'cle', 'rappel']) if (!meme(nouveau[champ], ancien[champ])) refuser('EtatRefuse', champ);
+  for (let i = 0; i < n; i++) {
+    if (!meme(nouveau.acces[i], ancien.acces[i]) || !meme(e.passkeys[i], a.passkeys[i])) refuser('EtatRefuse', 'acces existant');
+  }
+  if (!meme(nouveau.acces[n + 1], ancien.acces[n])) refuser('EtatRefuse', 'acces de secours');
+  const p = attendu.passkey;
+  for (const q of [g.passkey, e.passkeys[n]]) {
+    if (!p || q.cred !== p.cred || q.alg !== p.alg || q.cle !== p.cle) refuser('PasskeyRefusee');
+  }
+  return { gestion: g, etat: e, version: nouveau.version, empreinte: g.apres.empreinte };
 }
 
 // Les durées, communes à la page et au serveur.
@@ -480,7 +605,7 @@ export function controlerDuree(expire, maintenant) {
 export async function relireEtat(corps, attendu) {
   const { signataire, contenu } = lireMessageHorsChaine(corps.message, TAILLE_CONTENU);
   const g = validerGestion(lireCanonique(contenu, TAILLE_CONTENU));
-  if (g.action === 'attester-secours') refuser('ContexteRefuse', 'action');
+  if (g.action !== 'creer' && g.action !== 'ajouter-acces') refuser('ContexteRefuse', 'action');
   if (g.service !== attendu.service || g.environnement !== attendu.environnement || g.projet !== attendu.projet) refuser('ContexteRefuse', 'service');
   const e = validerEtat(lireCanonique(corps.etat, TAILLE_ETAT));
   if (g.adresse !== e.coffre.adresse || base58(signataire) !== g.adresse || g.coffre !== e.coffre.id) refuser('SignataireRefuse');

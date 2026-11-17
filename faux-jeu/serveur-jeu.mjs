@@ -14,6 +14,9 @@
 //        const { adresse } = await connexion.conclure(tentative, reponse, { walletAttendu });
 //      Ou, pour un compte que le jeu a déjà reconnu lui-même, avec le lien « compte → wallet » de sa base :
 //        const { adresse, premierLien } = await connexion.conclurePourCompte(tentative, reponse, { compte, liens });
+//      Si le joueur renonce (il choisit son propre wallet dans la fenêtre : erreur ChoixWallet côté page), le
+//      serveur retire le défi sans attendre son échéance :
+//        await connexion.abandonner(tentative);
 //
 // Les règles tenues ici :
 //   - le défi est tiré par le serveur, au hasard, pour une tentative précise, et vit cinq minutes ;
@@ -43,11 +46,18 @@
 //                                       En SQL : SELECT defi, contexte … WHERE tentative = ? AND expire > unixepoch()
 //   consommer({ tentative, defi, avant })   supprime ce défi s'il est là, pour cette tentative, pas expiré À L'INSTANT
 //                                       DE LA SUPPRESSION, et si l'échéance `avant` (la fin de validité de la preuve,
-//                                       déjà vérifiée) n'est pas franchie non plus ; rend vrai UNE SEULE FOIS. En SQL,
+//                                       déjà vérifiée ; ou, pour un abandon, la valeur réservée
+//                                       SANS_ECHEANCE_DE_PREUVE) n'est pas franchie non plus ; rend vrai UNE SEULE FOIS. En SQL,
 //                                       une seule instruction, et l'on regarde si une ligne a été supprimée :
 //                                       DELETE … WHERE tentative = ? AND defi = ? AND expire > unixepoch() AND ? > unixepoch()
 
 export const DUREE_DEFI_JEU = 300;   // secondes
+// L'échéance passée à `stockage.consommer` par `abandonner`, à la place de la fin de validité d'une preuve (il n'y
+// a pas de preuve dans un abandon). Une valeur réservée, la même partout, qui ne dépend d'aucune horloge : le 31
+// décembre 9999, en secondes. Elle ne prolonge rien : le stockage juge toujours l'expiration du défi lui-même, avec
+// sa propre horloge, dans la même suppression. Elle tient dans un entier de 64 bits ; un stockage qui compare
+// `avant` dans un entier de 32 bits doit l'élargir.
+export const SANS_ECHEANCE_DE_PREUVE = 253402300799;
 const TENTATIVE = /^[A-Za-z0-9_-]{16,128}$/;
 const TEXTE = /^[A-Za-z0-9_-]{1,8000}$/;
 
@@ -117,7 +127,226 @@ export function connexionServeurJeu({ contrat, service, jeu, stockage, horloge, 
     return { adresse, premierLien: lie.ecrit === true };
   }
 
-  return { nouveauDefi, conclure, conclurePourCompte };
+  // Le joueur renonce à cette tentative (il a choisi une autre méthode, ou fermé la fenêtre) : son défi est retiré
+  // tout de suite, sans rien vérifier, pour que plus aucune preuve ne puisse conclure cette tentative. Rend vrai si
+  // un défi encore vivant a été retiré, et seulement si le stockage le confirme : ne dire « abandonnée » au joueur ou
+  // au journal que sur ce vrai. Sans cet appel, ou s'il rend faux, le défi s'éteint de lui-même à son échéance.
+  // L'heure de ce programme n'entre pas dans la décision (elle peut être fausse, celle du stockage fait foi) : c'est
+  // le défi lu à l'instant qui est supprimé, s'il est toujours celui-là (un défi renouvelé entre la lecture et la
+  // suppression n'est pas touché) et s'il n'est pas expiré pour le stockage. C'est au serveur du jeu de n'accepter
+  // cet appel que pour une tentative de la session qui le demande.
+  async function abandonner(tentative) {
+    if (typeof tentative !== 'string' || !TENTATIVE.test(tentative)) refuser('tentative');
+    const attente = await stockage.lire(tentative);
+    if (!attente || typeof attente.defi !== 'string') return false;
+    return (await stockage.consommer({ tentative, defi: attente.defi, avant: SANS_ECHEANCE_DE_PREUVE })) === true;
+  }
+
+  return { nouveauDefi, conclure, conclurePourCompte, abandonner };
+}
+
+// ---------- Le joueur a déjà un wallet (Phantom, Solflare…) : « Sign In With Solana ».
+//
+// Ce chemin ne passe ni par la fenêtre du coffre ni par notre service, et ne crée aucun coffre : le wallet du joueur
+// signe un texte de connexion dans la page du jeu, et le serveur du jeu le vérifie. Aucun format n'est inventé ici :
+// le texte est celui de « Sign In With Solana » (publié par Phantom, repris par le Wallet Standard sous le nom
+// `solana:signIn`).
+//
+//   const wallet = connexionWalletServeurJeu({ contrat, jeu: 'https://…', stockage });
+//
+//   1. Avant le clic, le serveur prépare la tentative et rend ce que le wallet devra signer :
+//        const { entree } = await wallet.preparer(tentative, { but: 'connexion' });
+//        const { entree } = await wallet.preparer(tentative, { but: 'association', compte });
+//   2. La page appelle le wallet avec `entree` (coffre-jeu.mjs : connexionWallet) et renvoie sa sortie au serveur.
+//   3. Le serveur conclut. Alors seulement il ouvre ou complète la session :
+//        const { adresse } = await wallet.conclureConnexion(tentative, sortie, { walletAttendu });
+//        const { adresse, premierLien } = await wallet.conclureAssociation(tentative, sortie, { compte, liens });
+//
+// Les règles tenues ici :
+//   - tout ce qui sera signé est fixé par le serveur et rangé avec la tentative : le domaine, l'adresse de la page,
+//     le réseau, la phrase, les heures, et un `nonce` de 128 bits tiré au hasard. Rien de cela ne vient de la page ;
+//   - au retour, le serveur RECONSTRUIT le texte attendu à partir de ce qu'il a rangé et de l'adresse rendue, et
+//     exige que les octets signés soient exactement ceux-là. Il ne lit pas le texte signé pour y chercher des champs :
+//     il le compare, octet pour octet. Aucune mise en forme après la signature ;
+//   - l'adresse rendue est une adresse Solana bien formée (base58, 32 octets, une seule écriture), la clé publique
+//     annoncée est la même clé, et c'est elle qui vérifie la signature (Ed25519, 64 octets). Un type de signature
+//     inattendu, ou une enveloppe « hors chaîne », est refusé : ce premier essai ne couvre que le texte brut ;
+//   - tout est vérifié AVANT de toucher à la tentative, qui n'est consommée qu'une fois, même si deux demandes
+//     arrivent ensemble ; c'est le stockage qui juge l'expiration, à l'instant où il supprime ;
+//   - une tentative a un but, « connexion » ou « association », fixé à sa préparation : elle ne sert jamais à l'autre.
+//     Les deux phrases signées sont différentes : une signature obtenue pour l'une ne vaut pas pour l'autre ;
+//   - le wallet attendu vient de la base du jeu ; une connexion ne remplace jamais le wallet lié à un compte, et
+//     aucun rapprochement n'est fait avec un coffre.
+//
+// Ce que cette preuve établit : celui qui répond tient la clé de ce wallet, pour ce jeu et cette tentative.
+// **Ce qu'elle n'établit pas : la page où le joueur a signé.** Un faux site peut obtenir du vrai jeu un texte encore
+// vivant et le faire signer au joueur : le serveur reçoit alors exactement les bons octets et ne peut pas le voir.
+// La seule protection en plus est dans le wallet, qui compare le domaine du texte à la page qui demande (Phantom
+// documente un refus ; d'autres seulement un avertissement). Aucune garantie universelle n'est donc promise ici.
+//
+// Le stockage, pour ces tentatives (trois fonctions de plus, mêmes règles que pour le défi : c'est LUI qui lit l'heure) :
+//   poserWallet({ tentative, nonce, duree, champs })   garde la tentative pendant `duree` secondes (une seule à la fois
+//                                       par tentative) ; rend { emis } : l'heure qu'IL a lue en l'écrivant, en secondes.
+//                                       Elle sera écrite dans le texte à signer.
+//   lireWallet(tentative)               rend { nonce, emis, expire, champs } si elle existe et n'est pas expirée.
+//   consommerWallet({ tentative, nonce })   la supprime si elle est là, avec ce `nonce`, et pas expirée À L'INSTANT DE
+//                                       LA SUPPRESSION ; rend vrai UNE SEULE FOIS.
+
+export const DUREE_TENTATIVE_WALLET = 300;   // secondes
+// Les réseaux admis par la spécification pour « Chain ID » (son ABNF : message-chain-id).
+const RESEAUX = ['mainnet', 'testnet', 'devnet', 'localnet', 'solana:mainnet', 'solana:testnet', 'solana:devnet'];
+// Une phrase tient sur une ligne, dans les caractères que la spécification admet (son ABNF : message-statement,
+// c'est-à-dire lettres et chiffres sans accent, espace, et la ponctuation des adresses web).
+const PHRASE = /^[A-Za-z0-9\-._~:/?#[\]@!$&'()*+,;= ]{1,200}$/;
+const NONCE = /^[0-9a-f]{32}$/;   // 128 bits, en hexadécimal ; la spécification demande au moins 8 lettres ou chiffres
+const BUTS = ['connexion', 'association'];
+const PHRASES = {
+  connexion: 'Connexion a ce jeu avec ce wallet. Aucune transaction, aucun frais.',
+  association: 'Associer ce wallet a mon compte de jeu. Aucune transaction, aucun frais.',
+};
+const SORTIE = ['adresse', 'clePublique', 'messageSigne', 'signature', 'type', 'format'];
+
+// Le texte « Sign In With Solana », à l'octet près. Source : la fonction `createSignInMessageText` du Wallet Standard
+// (dépôt anza-xyz/wallet-standard, packages/core/util/src/signIn.ts, lue le 15/11/2026), qui suit le gabarit de la
+// spécification de Phantom (phantom/sign-in-with-solana). Chaque ligne ci-dessous est la sienne :
+//   - l'en-tête : le domaine, la phrase fixe en anglais, un retour à la ligne, puis l'adresse, sans retour après ;
+//   - la phrase (« statement »), si elle existe : une ligne vide, puis la phrase ;
+//   - les champs présents, dans cet ordre, un par ligne, précédés d'UNE ligne vide (qu'il y ait une phrase ou non) :
+//     « URI: », « Version: », « Chain ID: », « Nonce: », « Issued At: », « Expiration Time: », « Not Before: »,
+//     « Request ID: », puis « Resources: » suivi d'une ligne « - … » par ressource ;
+//   - aucun retour à la ligne final.
+// (La grammaire de Phantom écrit un seul retour avant les champs quand il n'y a pas de phrase ; la fonction de
+// référence en met deux. Nos tentatives ont toujours une phrase : les deux lectures donnent alors le même texte.)
+export function texteSiws(c) {
+  let texte = c.domain + ' wants you to sign in with your Solana account:\n' + c.address;
+  if (c.statement) texte += '\n\n' + c.statement;
+  const lignes = [];
+  if (c.uri) lignes.push('URI: ' + c.uri);
+  if (c.version) lignes.push('Version: ' + c.version);
+  if (c.chainId) lignes.push('Chain ID: ' + c.chainId);
+  if (c.nonce) lignes.push('Nonce: ' + c.nonce);
+  if (c.issuedAt) lignes.push('Issued At: ' + c.issuedAt);
+  if (c.expirationTime) lignes.push('Expiration Time: ' + c.expirationTime);
+  if (c.notBefore) lignes.push('Not Before: ' + c.notBefore);
+  if (c.requestId) lignes.push('Request ID: ' + c.requestId);
+  if (c.resources) { lignes.push('Resources:'); for (const r of c.resources) lignes.push('- ' + r); }
+  if (lignes.length) texte += '\n\n' + lignes.join('\n');
+  return texte;
+}
+
+export function connexionWalletServeurJeu({ contrat, jeu, stockage, duree, reseau, page, phrases }) {
+  const refuser = (detail) => { throw new contrat.Refus('ConnexionRefusee', detail); };
+  // L'origine du jeu : en https, ou en http pour l'ordinateur lui-même (les essais locaux). Ni chemin, ni requête.
+  let origine;
+  try { origine = new URL(jeu); } catch (_) { throw new Error('jeu : adresse illisible'); }
+  const locale = origine.protocol === 'http:' && (origine.hostname === 'localhost' || origine.hostname === '127.0.0.1');
+  if ((origine.protocol !== 'https:' && !locale) || jeu !== origine.origin) throw new Error('jeu : l origine du jeu est attendue, en https, sans chemin');
+  const domaine = origine.host;
+  // L'adresse de la page qui demande (« URI ») : fixée ici, sur l'origine du jeu. Par défaut, cette origine.
+  const adressePage = page === undefined ? jeu : page;
+  let lue;
+  try { lue = new URL(adressePage); } catch (_) { throw new Error('page : adresse illisible'); }
+  if (lue.origin !== jeu || lue.hash || lue.username || lue.password || /[\s#]/.test(adressePage)) throw new Error('page : une adresse du jeu est attendue');
+  const chaine = reseau === undefined ? 'mainnet' : reseau;
+  if (!RESEAUX.includes(chaine)) throw new Error('reseau : valeur inconnue de la specification');
+  const vie = duree === undefined ? DUREE_TENTATIVE_WALLET : duree;
+  // Dix minutes au plus : au-delà, un wallet qui juge l'heure d'émission refuserait de signer.
+  if (!Number.isInteger(vie) || vie < 30 || vie > 600) throw new Error('duree : entre 30 et 600 secondes');
+  const textes = Object.assign({}, PHRASES, phrases || {});
+  for (const b of BUTS) if (typeof textes[b] !== 'string' || !PHRASE.test(textes[b])) throw new Error('phrase refusee pour ' + b);
+  // Deux buts, deux phrases : une signature obtenue pour l'un ne peut pas servir à l'autre.
+  if (textes.connexion === textes.association) throw new Error('les deux phrases doivent etre differentes');
+
+  const iso = (secondes) => new Date(secondes * 1000).toISOString();
+  const adresseValide = (a) => { try { return typeof a === 'string' && a.length <= 64 ? contrat.deBase58(a, 32) : null; } catch (_) { return null; } };
+  const memes = (a, b) => { if (a.length !== b.length) return false; let d = 0; for (let i = 0; i < a.length; i++) d |= a[i] ^ b[i]; return d === 0; };
+
+  // `options.but` : « connexion » (le wallet seul ; le jeu retrouve ensuite le compte lié à ce wallet, s'il y en a
+  // un) ou « association » (lier ce wallet à `options.compte`, que le serveur a déjà reconnu LUI-MÊME).
+  // `options.wallet` : facultatif, le wallet que le jeu attend déjà (tiré de sa base) : il est écrit dans la demande,
+  // et seul ce wallet-là pourra conclure.
+  async function preparer(tentative, options) {
+    if (typeof tentative !== 'string' || !TENTATIVE.test(tentative)) refuser('tentative');
+    const but = options && options.but, compte = options && options.compte, wallet = options && options.wallet;
+    if (!BUTS.includes(but)) refuser('but');
+    if (but === 'association' ? (typeof compte !== 'string' || !compte) : (compte !== undefined && compte !== null)) refuser('compte');
+    if (wallet !== undefined && wallet !== null && !adresseValide(wallet)) refuser('wallet attendu');
+    const nonce = contrat.hex(crypto.getRandomValues(new Uint8Array(16)));
+    // Ce qui est rangé est ce qui sera signé : si un réglage du serveur change entre-temps, le texte attendu reste
+    // celui de la tentative.
+    const champs = JSON.stringify({ but, compte: but === 'association' ? compte : null, wallet: wallet || null,
+      domaine, page: adressePage, reseau: chaine, phrase: textes[but] });
+    const pose = await stockage.poserWallet({ tentative, nonce, duree: vie, champs });
+    if (!pose || !Number.isSafeInteger(pose.emis)) refuser('stockage');
+    const entree = { domain: domaine, statement: textes[but], uri: adressePage, version: '1', chainId: chaine, nonce,
+      issuedAt: iso(pose.emis), expirationTime: iso(pose.emis + vie) };
+    if (wallet) entree.address = wallet;
+    return { entree, duree: vie };
+  }
+
+  async function verifierPuisConsommer(tentative, sortie, but, compte, walletAttendu) {
+    if (typeof tentative !== 'string' || !TENTATIVE.test(tentative)) refuser('tentative');
+    // 1. La forme de ce que la page rapporte du wallet : quatre textes, et rien d'inconnu.
+    if (!sortie || typeof sortie !== 'object' || Array.isArray(sortie) || Object.keys(sortie).some((k) => !SORTIE.includes(k))) refuser('forme');
+    for (const k of ['adresse', 'clePublique', 'messageSigne', 'signature']) if (typeof sortie[k] !== 'string') refuser('forme');
+    // Un type de signature annoncé ne peut être que celui-là ; une enveloppe « hors chaîne » n'est pas couverte.
+    if (sortie.type !== undefined && sortie.type !== 'ed25519') refuser('type de signature');
+    if (sortie.format !== undefined && sortie.format !== null) refuser('format du message');
+    const signataire = adresseValide(sortie.adresse);
+    if (!signataire) refuser('adresse');
+    let annoncee, signe, signature;
+    try {
+      annoncee = contrat.deB64u(sortie.clePublique, 32);
+      if (sortie.messageSigne.length > 2800 || !TEXTE.test(sortie.messageSigne)) refuser('forme');
+      signe = contrat.deB64u(sortie.messageSigne);
+      signature = contrat.deB64u(sortie.signature, 64);
+    } catch (e) { if (e instanceof contrat.Refus && e.name === 'ConnexionRefusee') throw e; refuser('forme'); }
+    // La clé publique annoncée par le wallet est celle de l'adresse : une seule clé, celle qui vérifiera.
+    if (!memes(annoncee, signataire)) refuser('cle publique');
+    // 2. La tentative rangée, et ce pour quoi elle a été préparée.
+    const attente = await stockage.lireWallet(tentative);
+    if (!attente || typeof attente.nonce !== 'string' || !NONCE.test(attente.nonce) || !Number.isSafeInteger(attente.emis) || !Number.isSafeInteger(attente.expire)) refuser('tentative inconnue ou expiree');
+    let c;
+    try { c = JSON.parse(attente.champs); } catch (_) { refuser('tentative illisible'); }
+    if (!c || c.but !== but) refuser('but');
+    if ((c.compte || null) !== (compte || null)) refuser('contexte');
+    // Le wallet attendu : celui écrit dans la demande, et celui que la base du jeu donne maintenant.
+    if (c.wallet && sortie.adresse !== c.wallet) throw new contrat.Refus('AutreWallet');
+    if (walletAttendu !== undefined && walletAttendu !== null && sortie.adresse !== walletAttendu) throw new contrat.Refus('AutreWallet');
+    // 3. Le texte attendu, reconstruit ici, et l'égalité stricte des octets signés.
+    const attendu = new TextEncoder().encode(texteSiws({ domain: c.domaine, address: sortie.adresse, statement: c.phrase, uri: c.page,
+      version: '1', chainId: c.reseau, nonce: attente.nonce, issuedAt: iso(attente.emis), expirationTime: iso(attente.expire) }));
+    if (!memes(attendu, signe)) refuser('texte');
+    // 4. La signature, par la clé de l'adresse, sur ces octets-là.
+    if (!(await contrat.verifierSignature(signataire, signature, signe))) refuser('signature');
+    // 5. Consommer la tentative. Le stockage juge lui-même, dans la suppression, qu'elle n'a pas expiré ; une seule
+    //    des demandes arrivées ensemble passe ici.
+    if ((await stockage.consommerWallet({ tentative, nonce: attente.nonce })) !== true) refuser('expire ou deja utilise');
+    return { adresse: sortie.adresse };
+  }
+
+  // Une connexion par le wallet seul. Au serveur du jeu de retrouver ensuite le compte lié à ce wallet (`liens.compteDe`)
+  // et d'ouvrir sa session ; un wallet inconnu ne crée pas un compte à lui seul si le jeu ne le veut pas.
+  async function conclureConnexion(tentative, sortie, options) {
+    return verifierPuisConsommer(tentative, sortie, 'connexion', null, options && options.walletAttendu);
+  }
+
+  // Lier ce wallet à un compte que le jeu a déjà reconnu LUI-MÊME (sa session), après une confirmation claire du
+  // joueur. `compte` vient du serveur, jamais de la page, et doit être celui de la préparation. Mêmes règles que
+  // `conclurePourCompte` : un compte qui a déjà un wallet ne se connecte qu'avec celui-là, rien n'est jamais remplacé,
+  // un wallet déjà lié à un autre compte ne lie personne, et `premierLien` n'est vrai que pour l'écriture qui a créé
+  // le lien.
+  async function conclureAssociation(tentative, sortie, { compte, liens }) {
+    if (typeof compte !== 'string' || !compte) refuser('compte');
+    const deja = await liens.walletDe(compte);
+    const { adresse } = await verifierPuisConsommer(tentative, sortie, 'association', compte, deja);
+    if (deja) return { adresse, premierLien: false };
+    const lie = await liens.lierUneFois(compte, adresse);
+    if (!lie || lie.adresse !== adresse) throw new contrat.Refus('AutreWallet');
+    return { adresse, premierLien: lie.ecrit === true };
+  }
+
+  return { preparer, conclureConnexion, conclureAssociation };
 }
 
 // Un stockage en mémoire, pour les essais et le faux jeu. Un vrai serveur utilise sa base, et l'horloge de sa base.
@@ -125,7 +354,22 @@ export function connexionServeurJeu({ contrat, service, jeu, stockage, horloge, 
 export function stockageEnMemoire(horloge) {
   const maintenant = horloge || (() => Math.floor(Date.now() / 1000));
   const defis = new Map();
+  const wallets = new Map();
   return {
+    // Les tentatives de connexion par un wallet existant : mêmes règles, une heure lue à chaque opération.
+    async poserWallet({ tentative, nonce, duree, champs }) {
+      const t = maintenant();
+      for (const [cle, w] of wallets) if (!(w.expire > t)) wallets.delete(cle);
+      wallets.set(tentative, { nonce, emis: t, expire: t + duree, champs });
+      return { emis: t };
+    },
+    async lireWallet(tentative) { const w = wallets.get(tentative); return w && w.expire > maintenant() ? { nonce: w.nonce, emis: w.emis, expire: w.expire, champs: w.champs } : null; },
+    async consommerWallet({ tentative, nonce }) {
+      const w = wallets.get(tentative);
+      if (!w || w.nonce !== nonce || !(w.expire > maintenant())) return false;
+      wallets.delete(tentative);
+      return true;
+    },
     async poser({ tentative, defi, duree, contexte }) {
       const t = maintenant();
       for (const [cle, d] of defis) if (!(d.expire > t)) defis.delete(cle);

@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src https://coffre-serveur-test.aminvest73.workers.dev; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src https://coffre-serveur-test.aminvest73.workers.dev; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
@@ -44,9 +44,17 @@
 
   <section class="card" id="v-accueil" hidden>
     <h2>Bienvenue</h2>
-    <p>Ton coffre garde la clé de ton wallet. Il ne s'ouvre qu'avec ton appareil.</p>
+    <p id="p-accueil">Ton coffre garde la clé de ton wallet. Il ne s'ouvre qu'avec ton appareil.</p>
+    <div id="z-portes" hidden>
+      <p>Choisis comment te connecter.</p>
+      <!-- Les logos sont les fichiers officiels de chaque service, servis par cette page (voir LOGOS.md) : rien n'est chargé d'ailleurs. -->
+      <button id="b-porte-google" class="porte porte-google" hidden><img src="google-g.svg" alt="" width="20" height="20"><span>Continuer avec Google</span></button>
+      <button id="b-porte-discord" class="porte porte-discord" hidden><img src="discord-symbole-blanc.svg" alt="" width="20" height="20"><span>Continuer avec Discord</span></button>
+      <div class="ou" aria-hidden="true">ou</div>
+      <button id="b-porte-email" class="porte porte-neutre" hidden><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M3.5 6.5h17v11h-17z M4 7l8 6.5L20 7"/></svg><span>Continuer avec mon e-mail</span></button>
+    </div>
     <div id="z-identite" hidden>
-      <p>Pour commencer, dis-nous qui tu es : ton adresse e-mail, puis le code que nous t'envoyons.</p>
+      <p id="p-identite">Pour commencer, dis-nous qui tu es : ton adresse e-mail, puis le code que nous t'envoyons.</p>
       <input id="email" type="text" inputmode="email" autocomplete="email" autocapitalize="off" spellcheck="false" aria-label="Adresse e-mail" placeholder="Ton adresse e-mail">
       <button id="b-envoyer-code">Recevoir mon code</button>
       <div id="z-code" hidden>
@@ -55,8 +63,57 @@
       </div>
     </div>
     <button id="b-creer">Créer mon coffre</button>
-    <button id="b-connecter" class="second">J'ai déjà un coffre : me connecter</button>
+    <!-- Seulement quand le jeu qui a ouvert cette fenêtre le propose. Ce bouton ne signe rien et n'appelle aucun
+         wallet : il rend la main au jeu. L'icône est dessinée ici : rien n'est chargé d'ailleurs. -->
+    <button id="b-wallet" class="porte porte-neutre" hidden><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 7.5V17a2 2 0 0 0 2 2h13a1 1 0 0 0 1-1v-8a1 1 0 0 0-1-1H6a2 2 0 0 1-2-1.5zm0 0A2 2 0 0 1 6 5h11v4"/><circle cx="16.5" cy="14" r="1.3" fill="currentColor"/></svg><span>Connecter mon wallet</span></button>
+    <p class="muted note" id="p-wallet" hidden>Tu as déjà un wallet Solana ? Le jeu te demandera de confirmer avec lui. Aucun coffre n'est créé.</p>
+    <button id="b-connecter" class="lien">J'ai déjà un coffre : me connecter</button>
+    <button id="b-retrouver" class="lien" hidden>Je n'ai plus mon appareil : retrouver mon coffre</button>
     <div class="status" id="s-accueil"></div>
+  </section>
+
+  <section class="card" id="v-retrouver" hidden>
+    <h2>Retrouver mon coffre</h2>
+    <div id="r-mots">
+      <p>Pour retrouver ton wallet sans ton appareil, il te faut deux choses : tes 12 mots, et l'adresse e-mail que tu as donnée pendant ta mission de secours.</p>
+      <p class="muted">Ton appareil est neuf, mais avec le même compte Apple ou Google ? Essaie d'abord « J'ai déjà un coffre : me connecter ».</p>
+      <p>Écris tes 12 mots, dans l'ordre de ton papier.</p>
+      <div class="saisie">
+        <input id="r-mot-1" type="text" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" aria-label="Mot 1" placeholder="1">
+        <input id="r-mot-2" type="text" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" aria-label="Mot 2" placeholder="2">
+        <input id="r-mot-3" type="text" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" aria-label="Mot 3" placeholder="3">
+        <input id="r-mot-4" type="text" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" aria-label="Mot 4" placeholder="4">
+        <input id="r-mot-5" type="text" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" aria-label="Mot 5" placeholder="5">
+        <input id="r-mot-6" type="text" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" aria-label="Mot 6" placeholder="6">
+        <input id="r-mot-7" type="text" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" aria-label="Mot 7" placeholder="7">
+        <input id="r-mot-8" type="text" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" aria-label="Mot 8" placeholder="8">
+        <input id="r-mot-9" type="text" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" aria-label="Mot 9" placeholder="9">
+        <input id="r-mot-10" type="text" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" aria-label="Mot 10" placeholder="10">
+        <input id="r-mot-11" type="text" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" aria-label="Mot 11" placeholder="11">
+        <input id="r-mot-12" type="text" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" aria-label="Mot 12" placeholder="12">
+      </div>
+      <button id="b-r-suite">Continuer</button>
+    </div>
+    <div id="r-email" hidden>
+      <div id="r-z-adresse">
+        <p>Maintenant, ton adresse e-mail : celle de ta mission de secours. Nous t'y envoyons un code.</p>
+        <input id="r-adresse" type="text" inputmode="email" autocomplete="email" autocapitalize="off" spellcheck="false" aria-label="Adresse e-mail" placeholder="Ton adresse e-mail">
+        <button id="b-r-code">Recevoir mon code</button>
+        <input id="r-code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" aria-label="Code à 6 chiffres" placeholder="Code à 6 chiffres" hidden>
+      </div>
+      <button id="b-r-retrouver" hidden>Retrouver mon coffre</button>
+      <button id="b-r-revoir" class="second">Revoir mes 12 mots</button>
+    </div>
+    <div id="r-garder" hidden>
+      <p>C'est bien ton coffre. Adresse de ton wallet</p>
+      <p class="adresse" id="r-wallet"></p>
+      <p>Pour l'ouvrir sur cet appareil, il lui faut une nouvelle clé d'accès. Ton appareil va te demander de confirmer : d'abord pour la créer, puis pour l'essayer.</p>
+      <p><strong>Cet appareil pourra ensuite ouvrir ton wallet.</strong> Ne le fais que sur un appareil qui est à toi.</p>
+      <p class="muted">La clé de ton ancien appareil ouvre toujours ce coffre.</p>
+      <button id="b-r-garder">Garder ce wallet sur cet appareil</button>
+    </div>
+    <div class="status" id="s-retrouver"></div>
+    <button id="b-r-annuler" class="second">Annuler</button>
   </section>
 
   <section class="card" id="v-coffre" hidden>
@@ -68,12 +125,42 @@
     <button id="b-reconnecter">Me connecter</button>
     <div class="status" id="secours"></div>
     <button id="b-mission" class="second">Faire ma mission de secours</button>
+    <div class="status" id="appareil"></div>
+    <button id="b-ajouter" class="second" hidden>Ajouter cet appareil</button>
+    <button id="b-adresses" class="second" hidden>Mes adresses de secours</button>
     <details class="plus">
       <summary>Autres actions</summary>
       <button id="b-ouvrir" class="second">Ouvrir mon coffre sans le serveur</button>
       <button id="b-oublier" class="second">Oublier ce coffre sur cet appareil</button>
     </details>
     <div class="status" id="s-coffre"></div>
+  </section>
+
+  <section class="card" id="v-adresses" hidden>
+    <h2>Mes adresses de secours</h2>
+    <div id="a-liste">
+      <p>Si tu perds tes appareils, l'une de ces adresses, avec tes 12 mots, te rendra ton wallet.</p>
+      <p class="muted">Nous ne gardons pas tes adresses : la page ne peut pas te les montrer, seulement te dire quand elles ont été enregistrées.</p>
+      <div class="status" id="a-attente" hidden></div>
+      <button id="b-a-terminer" hidden>Terminer ce réglage</button>
+      <div class="status" id="a-rang-1"></div>
+      <button id="b-a-changer-1" class="second">Changer mon adresse principale</button>
+      <div class="status" id="a-rang-2"></div>
+      <button id="b-a-regler-2" class="second">Ajouter une seconde adresse</button>
+      <button id="b-a-retirer-2" class="second" hidden>Retirer ma seconde adresse</button>
+    </div>
+    <div id="a-saisie" hidden>
+      <p id="a-titre"></p>
+      <div id="a-z-adresse">
+        <input id="a-adresse" type="text" inputmode="email" autocomplete="email" autocapitalize="off" spellcheck="false" aria-label="Adresse e-mail" placeholder="Ton adresse e-mail">
+        <button id="b-a-code">Recevoir mon code</button>
+        <input id="a-code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" aria-label="Code à 6 chiffres" placeholder="Code à 6 chiffres" hidden>
+      </div>
+      <button id="b-a-enregistrer" hidden>Enregistrer cette adresse</button>
+      <button id="b-a-retour" class="second">Revenir à mes adresses</button>
+    </div>
+    <div class="status" id="s-adresses"></div>
+    <button id="b-a-fermer" class="second">Fermer</button>
   </section>
 
   <section class="card" id="v-mission" hidden>
@@ -139,6 +226,16 @@
       <button id="b-m-valider" disabled>Valider mes 12 mots</button>
       <button id="b-m-retirer" class="second" disabled>Retirer le dernier mot</button>
       <button id="b-m-revoir" class="second">Revoir mes mots</button>
+    </div>
+    <div id="m-email" hidden>
+      <p>C'est le bon ordre. Dernière étape : ton adresse e-mail.</p>
+      <p class="muted">Si tu perds tes appareils, il te faudra tes 12 mots ET un code reçu à cette adresse. Choisis une adresse que tu garderas longtemps.</p>
+      <div id="m-z-adresse">
+        <input id="m-adresse" type="text" inputmode="email" autocomplete="email" autocapitalize="off" spellcheck="false" aria-label="Adresse e-mail" placeholder="Ton adresse e-mail">
+        <button id="b-m-code">Recevoir mon code</button>
+        <input id="m-code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" aria-label="Code à 6 chiffres" placeholder="Code à 6 chiffres" hidden>
+      </div>
+      <button id="b-m-finir" hidden>Terminer ma mission</button>
     </div>
     <div class="status" id="s-mission"></div>
     <button id="b-m-annuler" class="second">Annuler</button>
